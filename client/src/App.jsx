@@ -1,128 +1,41 @@
-// import { useAuth } from "./lib/auth/AuthProvider";
-
-// function App() {
-//   const {
-//     user,
-//     isAuthenticated,
-//     loading,
-//   } = useAuth();
-
-//   if (loading) {
-//     return <h1>Loading authentication...</h1>;
-//   }
-
-//   return (
-//     <div>
-//       <h1>FlowForge AI</h1>
-
-//       {isAuthenticated ? (
-//         <div>
-//           <p>Authenticated</p>
-//           <p>Email: {user.email}</p>
-//           <p>User ID: {user.id}</p>
-//         </div>
-//       ) : (
-//         <p>Not authenticated</p>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default App; 
-
-
-
 import { useState } from "react";
 import { useAuth } from "./lib/auth/AuthProvider";
+import Dashboard from "./pages/Dashboard";
 
-function App() {
-  const {
-    user,
-    isAuthenticated,
-    loading,
-    signIn,
-    signOut,
-  } = useAuth();
-
+export default function App() {
+  const { user, isAuthenticated, loading, signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const handleLogin = async (event) => {
-    event.preventDefault();
+  if (loading) return <div className="auth-screen"><div className="auth-card">Loading…</div></div>;
+  if (isAuthenticated && user) return <Dashboard />;
 
-    setError("");
-    setLoginLoading(true);
-
+  const submit = async (event) => {
+    event.preventDefault(); setBusy(true); setError("");
     const result = await signIn(email, password);
-
-    if (result.error) {
-      setError(result.error.message);
-    }
-
-    setLoginLoading(false);
+    if (result.error) setError(result.error.message);
+    setBusy(false);
   };
 
-  const handleLogout = async () => {
-    const result = await signOut();
-
-    if (result.error) {
-      setError(result.error.message);
-    }
-  };
-
-  if (loading) {
-    return <h1>Loading authentication...</h1>;
-  }
-
-  return (
-    <div>
-      <h1>FlowForge AI</h1>
-
-      {isAuthenticated ? (
-        <div>
-          <p>Authenticated: {user.email}</p>
-
-          <p>
-            User ID: <strong>{user.id}</strong>
-          </p>
-
-          <button onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={handleLogin}>
-          <div>
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </div>
-
-          <button type="submit" disabled={loginLoading}>
-            {loginLoading ? "Signing in..." : "Login"}
-          </button>
-
-          {error && <p>{error}</p>}
-        </form>
-      )}
+  return <div className="auth-screen">
+    <div className="auth-card">
+      <p className="eyebrow">FLOWFORGE AI</p>
+      <h1>AI Agent Workflow Builder</h1>
+      <p className="muted">Sign in to manage organization-scoped workflows.</p>
+      <form onSubmit={submit}>
+        <label>Email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+        <label>Password
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </label>
+        {error && <div className="alert">{error}</div>}
+        <button className="primary full" disabled={busy}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
     </div>
-  );
+  </div>;
 }
-
-export default App;
