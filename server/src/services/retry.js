@@ -9,15 +9,21 @@ export async function withRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
+      const result = await operation();
+
       return {
-        result: await operation(),
+        result,
         attempt
       };
     } catch (error) {
       lastError = error;
 
+      console.log(
+        `Attempt ${attempt} failed: ${error.message}`
+      );
+
       if (attempt < attempts) {
-        await new Promise(resolve =>
+        await new Promise((resolve) =>
           setTimeout(resolve, delayMs)
         );
       }
