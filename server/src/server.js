@@ -1,11 +1,10 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 
 import { triggerWorkflowRun } from "./actions/triggerWorkflowRun.js";
 import { approveStepHandler } from "./actions/approveStep.js";
 
-dotenv.config();
 
 const app = express();
 

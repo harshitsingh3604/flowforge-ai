@@ -1,25 +1,26 @@
-export async function executeConditionalBranch({
-  step,
-  input,
-  context
-}) {
+export async function executeConditionalBranch({ step, input, context }) {
   const config = step.config || {};
 
-  const previousOutput = context?.previousOutput;
+  let valueToCheck = context?.previousOutput;
 
-  // Convert previous step output into searchable text
-  const outputText = JSON.stringify(previousOutput);
+  if (config.source_step_position) {
+    const sourceStep = context?.workflowSteps?.find(
+      (item) => item.position === config.source_step_position,
+    );
 
-  const searchValue = String(
-    config.value || ""
-  ).toLowerCase();
+    if (sourceStep) {
+      valueToCheck = context?.outputs?.[sourceStep.id];
+    }
+  }
+
+  const outputText = JSON.stringify(valueToCheck);
+
+  const searchValue = String(config.value || "").toLowerCase();
 
   let result = false;
 
   if (config.operator === "contains") {
-    result = outputText
-      .toLowerCase()
-      .includes(searchValue);
+    result = outputText.toLowerCase().includes(searchValue);
   }
 
   return {
@@ -28,7 +29,7 @@ export async function executeConditionalBranch({
     output: {
       result,
       branch: result ? "true" : "false",
-      matched: result
-    }
+      matched: result,
+    },
   };
 }

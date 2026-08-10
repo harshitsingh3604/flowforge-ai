@@ -18,6 +18,8 @@ export async function executeWorkflow({
   userId,
   triggerType = "manual",
   initialInput = {},
+  existingWorkflowRunId = null,
+  startAfterPosition = null,
 }) {
   let workflowRunId = null;
   let currentStepRunId = null;
@@ -28,6 +30,8 @@ export async function executeWorkflow({
     // =========================================================
 
     await getWorkflowAuthorization(workflowId, userId);
+
+    const authorization = await getWorkflowAuthorization(workflowId, userId);
 
     const { workflow, organizationId, role } = authorization;
 
@@ -134,18 +138,13 @@ export async function executeWorkflow({
 
     const context = {
       organizationId,
-
       workflowId,
-
       workflowRunId,
-
       userId,
-
       role,
-
       previousOutput: initialInput,
-
       outputs: {},
+      workflowSteps: steps,
     };
 
     let currentInput = initialInput;

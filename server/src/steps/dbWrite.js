@@ -1,22 +1,14 @@
 import { hasuraRequest } from "../services/hasura.js";
 
-export async function executeDbWrite({
-  step,
-  input,
-  context
-}) {
-  const dataToSave =
-    context?.previousOutput ?? input;
+export async function executeDbWrite({ step, input, context }) {
+  const dataToSave = context?.previousOutput ?? input;
 
   if (!dataToSave) {
-    throw new Error(
-      "No data available to write"
-    );
+    throw new Error("No data available to write");
   }
 
   const mutation = `
     mutation InsertWorkflowResult(
-      $organizationId: uuid!
       $workflowId: uuid!
       $workflowRunId: uuid!
       $stepRunId: uuid!
@@ -24,11 +16,10 @@ export async function executeDbWrite({
     ) {
       insert_workflow_results_one(
         object: {
-          organization_id: $organizationId
-          workflow_id: $workflowId
-          workflow_run_id: $workflowRunId
-          step_run_id: $stepRunId
-          data: $data
+           workflow_id: $workflowId
+            workflow_run_id: $workflowRunId
+            step_run_id: $stepRunId
+            data: $data
         }
       ) {
         id
@@ -37,32 +28,23 @@ export async function executeDbWrite({
     }
   `;
 
-  const result = await hasuraRequest(
-    mutation,
-    {
-      organizationId:
-        context.organizationId,
+  const result = await hasuraRequest(mutation, {
 
-      workflowId:
-        context.workflowId,
+    workflowId: context.workflowId,
 
-      workflowRunId:
-        context.workflowRunId,
+    workflowRunId: context.workflowRunId,
 
-      stepRunId:
-        context.stepRunId,
+    stepRunId: context.stepRunId,
 
-      data: dataToSave
-    }
-  );
+    data: dataToSave,
+  });
 
   return {
     status: "completed",
 
     output: {
       saved: true,
-      resultId:
-        result.insert_workflow_results_one.id
-    }
+      resultId: result.insert_workflow_results_one.id,
+    },
   };
 }

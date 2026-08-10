@@ -1,9 +1,6 @@
 import { withRetry } from "../services/retry.js";
 
-export async function executeHttpRequest({
-  step,
-  input
-}) {
+export async function executeHttpRequest({ step, input }) {
   const config = step.config || {};
 
   const method = config.method || "GET";
@@ -16,42 +13,47 @@ export async function executeHttpRequest({
 
   const options = {
     method,
-    headers
+    headers,
   };
 
   // GET/HEAD requests generally don't need a body
   if (!["GET", "HEAD"].includes(method.toUpperCase())) {
-    options.body = JSON.stringify(
-      config.body ?? input
-    );
+    options.body = JSON.stringify(config.body ?? input);
 
     options.headers = {
       "Content-Type": "application/json",
-      ...headers
+      ...headers,
     };
   }
 
-  const response = await fetch(url, options);
+  const { result, attempt } = await withRetry(
+    async () => {
+      const response = await fetch(url, options);
 
-  const contentType =
-    response.headers.get("content-type") || "";
+      if (!response.ok) {
+        throw new Error(`HTTP request failed: ${response.status}`);
+      }
 
-  const data = contentType.includes("application/json")
-    ? await response.json()
-    : await response.text();
+      const contentType = response.headers.get("content-type") || "";
 
-  if (!response.ok) {
-    throw new Error(
-      `HTTP request failed: ${response.status}`
-    );
-  }
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+
+      return {
+        statusCode: response.status,
+        data,
+      };
+    },
+    {
+      attempts: 2,
+      delayMs: 1000,
+    },
+  );
 
   return {
     status: "completed",
-
-    output: {
-      statusCode: response.status,
-      data
-    }
+    output: result,
+    attemptCount: attempt,
   };
 }
