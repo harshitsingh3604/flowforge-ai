@@ -384,6 +384,7 @@ export async function approveStep({
         _set: {
           status: "completed"
           approved_by: $userId
+          approved_at: "now()"
         }
       ) {
         affected_rows
