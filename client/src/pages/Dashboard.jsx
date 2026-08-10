@@ -8,7 +8,7 @@ const WORKFLOWS_QUERY = `
       id name description organization_id
       workflow_steps(order_by: { position: asc }) { id position name type config }
       workflow_triggers { id type config enabled }
-      workflow_runs(order_by: { created_at: desc }, limit: 1) { id status trigger_type created_at }
+      workflow_runs(order_by: { started_at: desc }, limit: 1) { id status trigger_type started_at  }
     }
     org_members(where: { user_id: { _eq: "+USER_ID+" } }) { organization_id role }
   }
