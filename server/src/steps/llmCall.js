@@ -1,15 +1,23 @@
 import { GoogleGenAI } from "@google/genai";
 import { withRetry } from "../services/retry.js";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY
-});
+function getGemini() {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  return new GoogleGenAI({ apiKey });
+}
 
 export async function executeLlmCall({
   step,
   input,
   context
 }) {
+  const ai = getGemini();
+
   const config = step.config || {};
 
   const promptTemplate =
@@ -26,7 +34,7 @@ export async function executeLlmCall({
   const { result, attempt } = await withRetry(
     async () => {
       const response = await ai.models.generateContent({
-        model: config.model || "gemini-2.5-flash",
+        model: config.model || "gemini-3.6-flash",
         contents: prompt
       });
 

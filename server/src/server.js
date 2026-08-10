@@ -5,7 +5,6 @@ import { triggerWorkflowRun } from "./actions/triggerWorkflowRun.js";
 import { approveStepHandler } from "./actions/approveStep.js";
 import { workflowWebhook } from "./webhooks/workflowWebhook.js";
 import { notificationEvent } from "./webhooks/notificationEvent.js";
-import { webhookWorkflow } from "./actions/webhookWorkflow.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,7 +18,6 @@ app.get("/health", (_req, res) => {
 
 app.post("/actions/trigger-workflow-run", triggerWorkflowRun);
 app.post("/actions/approve-step", approveStepHandler);
-app.post("/actions/webhook-workflow", webhookWorkflow);
 app.post("/webhooks/workflow/:workflowId", workflowWebhook);
 app.post("/events/notification", notificationEvent);
 

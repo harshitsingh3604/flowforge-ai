@@ -21,17 +21,13 @@ export async function triggerWorkflowRun(req, res) {
     // 1. Get authenticated user
     // ----------------------------------------------------------
 
-    const userId =
-      req.body?.session_variables?.[
-        "x-hasura-user-id"
-      ];
+    const userId = req.body?.session_variables?.["x-hasura-user-id"];
 
     // ----------------------------------------------------------
     // 2. Get workflow ID from Hasura Action input
     // ----------------------------------------------------------
 
-    const workflowId =
-      req.body?.input?.workflow_id;
+    const workflowId = req.body?.input?.workflow_id;
 
     // ----------------------------------------------------------
     // 3. Validate authentication
@@ -41,7 +37,7 @@ export async function triggerWorkflowRun(req, res) {
       return res.status(401).json({
         success: false,
         code: "UNAUTHENTICATED",
-        message: "Authentication required"
+        message: "Authentication required",
       });
     }
 
@@ -53,12 +49,12 @@ export async function triggerWorkflowRun(req, res) {
       return res.status(400).json({
         success: false,
         code: "INVALID_INPUT",
-        message: "workflow_id is required"
+        message: "workflow_id is required",
       });
     }
 
     console.log(
-      `[ACTION] triggerWorkflowRun: workflow=${workflowId}, user=${userId}`
+      `[ACTION] triggerWorkflowRun: workflow=${workflowId}, user=${userId}`,
     );
 
     // ----------------------------------------------------------
@@ -76,7 +72,7 @@ export async function triggerWorkflowRun(req, res) {
     const result = await executeWorkflow({
       workflowId,
       userId,
-      triggerType: "manual"
+      triggerType: "manual",
     });
 
     // ----------------------------------------------------------
@@ -86,14 +82,15 @@ export async function triggerWorkflowRun(req, res) {
     return res.status(200).json({
       success: true,
       workflowRunId: result.workflowRunId,
-      status: result.status
+      status: result.status,
+      message:
+        result.message ||
+        (result.status === "paused"
+          ? "Workflow is waiting for approval."
+          : "Workflow executed successfully."),
     });
-
   } catch (error) {
-    console.error(
-      "[ACTION] triggerWorkflowRun failed:",
-      error
-    );
+    console.error("[ACTION] triggerWorkflowRun failed:", error);
 
     // ----------------------------------------------------------
     // Map known application errors
@@ -101,9 +98,7 @@ export async function triggerWorkflowRun(req, res) {
 
     let statusCode = 500;
 
-    if (
-      error.code === "UNAUTHENTICATED"
-    ) {
+    if (error.code === "UNAUTHENTICATED") {
       statusCode = 401;
     }
 
@@ -115,27 +110,18 @@ export async function triggerWorkflowRun(req, res) {
       statusCode = 403;
     }
 
-    if (
-      error.code === "QUOTA_EXCEEDED"
-    ) {
+    if (error.code === "QUOTA_EXCEEDED") {
       statusCode = 429;
     }
 
-    if (
-      error.code === "WORKFLOW_NOT_FOUND" ||
-      error.code === "INVALID_INPUT"
-    ) {
+    if (error.code === "WORKFLOW_NOT_FOUND" || error.code === "INVALID_INPUT") {
       statusCode = 400;
     }
 
     return res.status(statusCode).json({
       success: false,
-      code:
-        error.code ||
-        "WORKFLOW_EXECUTION_FAILED",
-      message:
-        error.message ||
-        "Failed to execute workflow"
+      code: error.code || "WORKFLOW_EXECUTION_FAILED",
+      message: error.message || "Failed to execute workflow",
     });
   }
 }

@@ -9,6 +9,7 @@ export async function executeDbWrite({ input, context }) {
       $workflowId: uuid!
       $workflowRunId: uuid!
       $stepRunId: uuid!
+      $organizationId: uuid!
       $data: jsonb!
     ) {
       insert_workflow_results_one(
@@ -16,14 +17,19 @@ export async function executeDbWrite({ input, context }) {
           workflow_id: $workflowId
           workflow_run_id: $workflowRunId
           step_run_id: $stepRunId
+          organization_id: $organizationId
           data: $data
         }
-      ) { id created_at }
+      ) {
+        id
+        created_at
+      }
     }
   `, {
     workflowId: context.workflowId,
     workflowRunId: context.workflowRunId,
     stepRunId: context.stepRunId,
+    organizationId: context.organizationId,
     data: dataToSave,
   });
 
