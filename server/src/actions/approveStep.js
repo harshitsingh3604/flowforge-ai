@@ -1,116 +1,225 @@
 import { hasuraRequest } from "../services/hasura.js";
 import { executeWorkflow } from "../engine/executeWorkflow.js";
 
+/**
+ * ============================================================
+ * Hasura Action Handler
+ * ============================================================
+ *
+ * Hasura sends:
+ *
+ * {
+ *   "input": {
+ *     "step_run_id": "..."
+ *   },
+ *   "session_variables": {
+ *     "x-hasura-user-id": "..."
+ *   }
+ * }
+ *
+ * Express receives this as:
+ *
+ * approveStepHandler(req, res)
+ *
+ * The handler extracts the values and then calls the actual
+ * approval business logic below.
+ */
+export async function approveStepHandler(req, res) {
+  try {
+    // ----------------------------------------------------------
+    // 1. Get authenticated user from Hasura session variables
+    // ----------------------------------------------------------
+
+    const userId =
+      req.body?.session_variables?.[
+        "x-hasura-user-id"
+      ];
+
+    // ----------------------------------------------------------
+    // 2. Get step_run_id from Hasura Action input
+    // ----------------------------------------------------------
+
+    const stepRunId =
+      req.body?.input?.step_run_id;
+
+    // ----------------------------------------------------------
+    // 3. Validate authentication
+    // ----------------------------------------------------------
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        code: "UNAUTHENTICATED",
+        message: "Authentication required"
+      });
+    }
+
+    // ----------------------------------------------------------
+    // 4. Validate input
+    // ----------------------------------------------------------
+
+    if (!stepRunId) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_INPUT",
+        message: "step_run_id is required"
+      });
+    }
+
+    console.log(
+      `[ACTION] approveStep: stepRun=${stepRunId}, user=${userId}`
+    );
+
+    // ----------------------------------------------------------
+    // 5. Call approval business logic
+    // ----------------------------------------------------------
+
+    const result = await approveStep({
+      stepRunId,
+      userId
+    });
+
+    // ----------------------------------------------------------
+    // 6. Return Hasura Action response
+    // ----------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      workflowRunId: result.workflowRunId,
+      status: result.status,
+      message: result.message
+    });
+
+  } catch (error) {
+    console.error(
+      "[ACTION] approveStep failed:",
+      error
+    );
+
+    let statusCode = 500;
+
+    if (error.code === "UNAUTHENTICATED") {
+      statusCode = 401;
+    }
+
+    if (
+      error.code === "ORG_ACCESS_DENIED" ||
+      error.code === "APPROVAL_FORBIDDEN" ||
+      error.code === "WORKFLOW_TRIGGER_FORBIDDEN" ||
+      error.code === "STEP_FORBIDDEN"
+    ) {
+      statusCode = 403;
+    }
+
+    if (
+      error.code === "INVALID_APPROVAL_STATE"
+    ) {
+      statusCode = 409;
+    }
+
+    if (
+      error.code === "INVALID_INPUT" ||
+      error.code === "STEP_RUN_NOT_FOUND"
+    ) {
+      statusCode = 400;
+    }
+
+    return res.status(statusCode).json({
+      success: false,
+      code:
+        error.code ||
+        "APPROVAL_FAILED",
+      message:
+        error.message ||
+        "Failed to approve step"
+    });
+  }
+}
+
+
+/**
+ * ============================================================
+ * Approval Business Logic
+ * ============================================================
+ *
+ * This function does NOT know anything about Express.
+ *
+ * It receives:
+ *
+ * {
+ *   stepRunId,
+ *   userId
+ * }
+ *
+ * and performs:
+ *
+ * 1. Load step_run
+ * 2. Load workflow_run
+ * 3. Load workflow
+ * 4. Load organization
+ * 5. Check membership
+ * 6. Check owner/editor role
+ * 7. Verify approval_gate
+ * 8. Verify paused state
+ * 9. Approve step
+ * 10. Resume workflow
+ */
 export async function approveStep({
   stepRunId,
   userId
 }) {
-  // ============================================================
-  // 1. AUTHENTICATION
-  // ============================================================
-
-  if (!userId) {
-    const error = new Error(
-      "Authentication required"
-    );
-
-    error.code = "UNAUTHENTICATED";
-
-    throw error;
-  }
-
-  if (!stepRunId) {
-    const error = new Error(
-      "step_run_id is required"
-    );
-
-    error.code = "INVALID_INPUT";
-
-    throw error;
-  }
-
-  // ============================================================
-  // 2. LOAD STEP + WORKFLOW + ORGANIZATION
-  // ============================================================
+  // ----------------------------------------------------------
+  // 1. Load step run + workflow context
+  // ----------------------------------------------------------
 
   const query = `
-    query GetStepForApproval(
+    query GetApprovalContext(
       $stepRunId: uuid!
-      $userId: uuid!
     ) {
-      step_runs_by_pk(id: $stepRunId) {
+      step_runs(
+        where: {
+          id: { _eq: $stepRunId }
+        }
+        limit: 1
+      ) {
         id
         status
+        workflow_run_id
         workflow_step_id
-        approved_by
-        approved_at
 
         workflow_step {
           id
           type
-          workflow_id
           position
         }
 
         workflow_run {
           id
-          workflow_id
           status
+          workflow_id
 
           workflow {
             id
             organization_id
-
-            organization {
-              id
-
-              org_members(
-                where: {
-                  user_id: {
-                    _eq: $userId
-                  }
-                }
-                limit: 1
-              ) {
-                id
-                user_id
-                role
-              }
-            }
-
-            workflow_steps(
-              order_by: {
-                position: asc
-              }
-            ) {
-              id
-              workflow_id
-              position
-              name
-              type
-              config
-            }
           }
         }
       }
     }
   `;
 
-  const data =
-    await hasuraRequest(
-      query,
-      {
-        stepRunId,
-        userId
-      }
-    );
+  const data = await hasuraRequest(
+    query,
+    {
+      stepRunId
+    }
+  );
 
   const stepRun =
-    data.step_runs_by_pk;
+    data.step_runs?.[0];
 
-  // ============================================================
-  // 3. STEP EXISTS?
-  // ============================================================
+  // ----------------------------------------------------------
+  // 2. Step run must exist
+  // ----------------------------------------------------------
 
   if (!stepRun) {
     const error = new Error(
@@ -122,198 +231,226 @@ export async function approveStep({
     throw error;
   }
 
-  // ============================================================
-  // 4. ORGANIZATION MEMBERSHIP
-  // ============================================================
+  // ----------------------------------------------------------
+  // 3. Verify workflow context
+  // ----------------------------------------------------------
+
+  const workflowRun =
+    stepRun.workflow_run;
 
   const workflow =
-    stepRun.workflow_run.workflow;
+    workflowRun?.workflow;
 
-  const membership =
-    workflow.organization
-      ?.org_members?.[0];
-
-  if (!membership) {
+  if (!workflowRun || !workflow) {
     const error = new Error(
-      "You are not a member of this organization"
+      "Workflow context not found"
     );
 
-    error.code =
-      "ORG_ACCESS_DENIED";
+    error.code = "WORKFLOW_NOT_FOUND";
 
     throw error;
   }
 
-  // ============================================================
-  // 5. OWNER / EDITOR CHECK
-  // ============================================================
+  // ----------------------------------------------------------
+  // 4. Verify approval gate
+  // ----------------------------------------------------------
 
   if (
-    membership.role !== "owner" &&
-    membership.role !== "editor"
-  ) {
-    const error = new Error(
-      "Only owners and editors can approve workflow steps"
-    );
-
-    error.code =
-      "APPROVAL_FORBIDDEN";
-
-    throw error;
-  }
-
-  // ============================================================
-  // 6. IS THIS ACTUALLY AN APPROVAL GATE?
-  // ============================================================
-
-  if (
-    stepRun.workflow_step.type !==
+    stepRun.workflow_step?.type !==
     "approval_gate"
   ) {
     const error = new Error(
       "This step is not an approval gate"
     );
 
-    error.code =
-      "NOT_APPROVAL_GATE";
+    error.code = "INVALID_APPROVAL_STATE";
 
     throw error;
   }
 
-  // ============================================================
-  // 7. IS THE STEP PAUSED?
-  // ============================================================
+  // ----------------------------------------------------------
+  // 5. Verify step is paused
+  // ----------------------------------------------------------
 
   if (stepRun.status !== "paused") {
     const error = new Error(
-      "Step is not waiting for approval"
+      "Approval step is not currently paused"
     );
 
-    error.code =
-      "STEP_NOT_PAUSED";
+    error.code = "INVALID_APPROVAL_STATE";
 
     throw error;
   }
 
-  // ============================================================
-  // 8. IS THE WORKFLOW PAUSED?
-  // ============================================================
+  // ----------------------------------------------------------
+  // 6. Verify workflow run is paused
+  // ----------------------------------------------------------
 
-  const workflowRun =
-    stepRun.workflow_run;
+  if (workflowRun.status !== "paused") {
+    const error = new Error(
+      "Workflow run is not currently paused"
+    );
+
+    error.code = "INVALID_APPROVAL_STATE";
+
+    throw error;
+  }
+
+  // ----------------------------------------------------------
+  // 7. Check approver membership + role
+  // ----------------------------------------------------------
+
+  const membershipQuery = `
+    query GetApproverMembership(
+      $organizationId: uuid!
+      $userId: uuid!
+    ) {
+      org_members(
+        where: {
+          organization_id: {
+            _eq: $organizationId
+          }
+          user_id: {
+            _eq: $userId
+          }
+        }
+        limit: 1
+      ) {
+        id
+        user_id
+        role
+      }
+    }
+  `;
+
+  const membershipData =
+    await hasuraRequest(
+      membershipQuery,
+      {
+        organizationId:
+          workflow.organization_id,
+        userId
+      }
+    );
+
+  const membership =
+    membershipData.org_members?.[0];
+
+  // ----------------------------------------------------------
+  // 8. User must belong to organization
+  // ----------------------------------------------------------
+
+  if (!membership) {
+    const error = new Error(
+      "You are not a member of this organization"
+    );
+
+    error.code = "ORG_ACCESS_DENIED";
+
+    throw error;
+  }
+
+  // ----------------------------------------------------------
+  // 9. Only owner/editor can approve
+  // ----------------------------------------------------------
 
   if (
-    workflowRun.status !== "paused"
+    membership.role !== "owner" &&
+    membership.role !== "editor"
   ) {
     const error = new Error(
-      "Workflow is not paused"
+      "You do not have permission to approve this step"
     );
 
-    error.code =
-      "WORKFLOW_NOT_PAUSED";
+    error.code = "APPROVAL_FORBIDDEN";
 
     throw error;
   }
 
-  // ============================================================
-  // 9. APPROVE STEP
-  // ============================================================
+  // ----------------------------------------------------------
+  // 10. Approve the step
+  // ----------------------------------------------------------
 
-  const approveMutation = `
+  const updateMutation = `
     mutation ApproveStep(
       $stepRunId: uuid!
       $userId: uuid!
     ) {
-      update_step_runs_by_pk(
-        pk_columns: {
-          id: $stepRunId
+      update_step_runs(
+        where: {
+          id: { _eq: $stepRunId }
+          status: { _eq: "paused" }
         }
         _set: {
           status: "completed"
           approved_by: $userId
-          approved_at: "now()"
-          completed_at: "now()"
         }
       ) {
-        id
-        status
-        approved_by
-        approved_at
+        affected_rows
+
+        returning {
+          id
+          status
+          approved_by
+          approved_at
+        }
       }
     }
   `;
 
-  await hasuraRequest(
-    approveMutation,
-    {
-      stepRunId,
-      userId
-    }
-  );
-
-  // ============================================================
-  // 10. SET WORKFLOW BACK TO RUNNING
-  // ============================================================
-
-  const resumeMutation = `
-    mutation ResumeWorkflow(
-      $workflowRunId: uuid!
-    ) {
-      update_workflow_runs_by_pk(
-        pk_columns: {
-          id: $workflowRunId
-        }
-        _set: {
-          status: "running"
-        }
-      ) {
-        id
-        status
+  const updateData =
+    await hasuraRequest(
+      updateMutation,
+      {
+        stepRunId,
+        userId
       }
-    }
-  `;
+    );
 
-  await hasuraRequest(
-    resumeMutation,
-    {
-      workflowRunId:
-        workflowRun.id
-    }
-  );
+  if (
+    updateData.update_step_runs
+      ?.affected_rows !== 1
+  ) {
+    const error = new Error(
+      "Approval step was already approved or is no longer paused"
+    );
 
-  // ============================================================
-  // 11. RESUME FROM NEXT STEP
-  // ============================================================
+    error.code = "INVALID_APPROVAL_STATE";
 
-  const resumedWorkflow =
+    throw error;
+  }
+
+  // ----------------------------------------------------------
+  // 11. Resume workflow
+  //
+  // IMPORTANT:
+  // executeWorkflow.js must later support:
+  //
+  // existingWorkflowRunId
+  // startAfterPosition
+  //
+  // We identified this as another issue in your project.
+  // ----------------------------------------------------------
+
+  const result =
     await executeWorkflow({
-      workflowId:
-        workflow.id,
-
+      workflowId: workflow.id,
       userId,
-
-      triggerType:
-        "approval_resume",
-
-      startAfterPosition:
-        stepRun.workflow_step.position,
-
+      triggerType: "approval_resume",
       existingWorkflowRunId:
-        workflowRun.id
+        workflowRun.id,
+      startAfterPosition:
+        stepRun.workflow_step.position
     });
 
   return {
-    success: true,
-
     workflowRunId:
       workflowRun.id,
 
-    approvedStepRunId:
-      stepRunId,
-
-    approvedBy: userId,
-
     status:
-      resumedWorkflow.status
+      result.status,
+
+    message:
+      "Approval accepted and workflow resumed"
   };
 }

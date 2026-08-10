@@ -5,11 +5,15 @@ export async function getWorkflowAuthorization(
   userId
 ) {
   const query = `
-    query GetWorkflowAuthorization($workflowId: uuid!) {
+    query GetWorkflowAuthorization(
+      $workflowId: uuid!
+      $userId: uuid!
+    ) {
       workflows(
         where: {
           id: { _eq: $workflowId }
         }
+        limit: 1
       ) {
         id
         organization_id
@@ -17,10 +21,11 @@ export async function getWorkflowAuthorization(
         organization {
           id
 
-          members(
+          org_members(
             where: {
               user_id: { _eq: $userId }
             }
+            limit: 1
           ) {
             user_id
             role
@@ -35,21 +40,47 @@ export async function getWorkflowAuthorization(
     userId
   });
 
-  const workflow = data.workflows[0];
+  const workflow = data.workflows?.[0];
+
+  // ----------------------------------------------------------
+  // Workflow must exist
+  // ----------------------------------------------------------
 
   if (!workflow) {
-    throw new Error("Workflow not found");
+    const error = new Error(
+      "Workflow not found"
+    );
+
+    error.code = "WORKFLOW_NOT_FOUND";
+
+    throw error;
   }
 
-  const member = workflow.organization.members[0];
+  // ----------------------------------------------------------
+  // User must belong to the workflow's organization
+  // ----------------------------------------------------------
+
+  const member =
+    workflow.organization?.org_members?.[0];
 
   if (!member) {
-    throw new Error("You are not a member of this organization");
+    const error = new Error(
+      "You are not a member of this organization"
+    );
+
+    error.code = "ORG_ACCESS_DENIED";
+
+    throw error;
   }
+
+  // ----------------------------------------------------------
+  // Return authorization context
+  // ----------------------------------------------------------
 
   return {
     workflow,
-    organizationId: workflow.organization_id,
+    organizationId:
+      workflow.organization_id,
     role: member.role
   };
 }

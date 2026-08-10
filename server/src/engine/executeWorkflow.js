@@ -17,7 +17,7 @@ export async function executeWorkflow({
   workflowId,
   userId,
   triggerType = "manual",
-  initialInput = {}
+  initialInput = {},
 }) {
   let workflowRunId = null;
   let currentStepRunId = null;
@@ -27,17 +27,9 @@ export async function executeWorkflow({
     // 1. AUTHORIZATION
     // =========================================================
 
-    const authorization =
-      await getWorkflowAuthorization({
-        workflowId,
-        userId
-      });
+    await getWorkflowAuthorization(workflowId, userId);
 
-    const {
-      workflow,
-      organizationId,
-      role
-    } = authorization;
+    const { workflow, organizationId, role } = authorization;
 
     if (!workflow) {
       throw new Error("WORKFLOW_NOT_FOUND");
@@ -45,13 +37,8 @@ export async function executeWorkflow({
 
     // Owner and editor can trigger workflows.
     // Viewer cannot.
-    if (
-      role !== "owner" &&
-      role !== "editor"
-    ) {
-      const error = new Error(
-        "FORBIDDEN: You cannot trigger this workflow."
-      );
+    if (role !== "owner" && role !== "editor") {
+      const error = new Error("FORBIDDEN: You cannot trigger this workflow.");
 
       error.code = "FORBIDDEN";
 
@@ -93,17 +80,13 @@ export async function executeWorkflow({
       }
     `;
 
-    const runData = await hasuraRequest(
-      createRunMutation,
-      {
-        workflowId,
-        triggerType,
-        createdBy: userId
-      }
-    );
+    const runData = await hasuraRequest(createRunMutation, {
+      workflowId,
+      triggerType,
+      createdBy: userId,
+    });
 
-    const workflowRun =
-      runData.insert_workflow_runs_one;
+    const workflowRun = runData.insert_workflow_runs_one;
 
     workflowRunId = workflowRun.id;
 
@@ -135,20 +118,14 @@ export async function executeWorkflow({
       }
     `;
 
-    const stepsData = await hasuraRequest(
-      stepsQuery,
-      {
-        workflowId
-      }
-    );
+    const stepsData = await hasuraRequest(stepsQuery, {
+      workflowId,
+    });
 
-    const steps =
-      stepsData.workflow_steps || [];
+    const steps = stepsData.workflow_steps || [];
 
     if (steps.length === 0) {
-      throw new Error(
-        "WORKFLOW_HAS_NO_STEPS"
-      );
+      throw new Error("WORKFLOW_HAS_NO_STEPS");
     }
 
     // =========================================================
@@ -168,7 +145,7 @@ export async function executeWorkflow({
 
       previousOutput: initialInput,
 
-      outputs: {}
+      outputs: {},
     };
 
     let currentInput = initialInput;
@@ -211,18 +188,13 @@ export async function executeWorkflow({
         }
       `;
 
-      const stepRunData =
-        await hasuraRequest(
-          createStepRunMutation,
-          {
-            workflowRunId,
-            workflowStepId: step.id,
-            input: currentInput ?? {}
-          }
-        );
+      const stepRunData = await hasuraRequest(createStepRunMutation, {
+        workflowRunId,
+        workflowStepId: step.id,
+        input: currentInput ?? {},
+      });
 
-      const stepRun =
-        stepRunData.insert_step_runs_one;
+      const stepRun = stepRunData.insert_step_runs_one;
 
       currentStepRunId = stepRun.id;
 
@@ -233,22 +205,12 @@ export async function executeWorkflow({
       // Step-level authorization
       // -------------------------------------------------------
 
-      if (
-        step.type === "db_write" &&
-        role !== "owner"
-      ) {
-        throw new Error(
-          "FORBIDDEN: Only an owner can execute db_write steps."
-        );
+      if (step.type === "db_write" && role !== "owner") {
+        throw new Error("FORBIDDEN: Only an owner can execute db_write steps.");
       }
 
-      if (
-        step.type === "notify" &&
-        role !== "owner"
-      ) {
-        throw new Error(
-          "FORBIDDEN: Only an owner can execute notify steps."
-        );
+      if (step.type === "notify" && role !== "owner") {
+        throw new Error("FORBIDDEN: Only an owner can execute notify steps.");
       }
 
       // -------------------------------------------------------
@@ -258,15 +220,14 @@ export async function executeWorkflow({
       const result = await executeStep({
         step,
         input: currentInput,
-        context
+        context,
       });
 
       // -------------------------------------------------------
       // Save attempt count
       // -------------------------------------------------------
 
-      const attemptCount =
-        result.attemptCount || 1;
+      const attemptCount = result.attemptCount || 1;
 
       // -------------------------------------------------------
       // APPROVAL GATE
@@ -295,14 +256,11 @@ export async function executeWorkflow({
           }
         `;
 
-        await hasuraRequest(
-          pauseStepMutation,
-          {
-            stepRunId: stepRun.id,
-            output: result.output ?? {},
-            attemptCount
-          }
-        );
+        await hasuraRequest(pauseStepMutation, {
+          stepRunId: stepRun.id,
+          output: result.output ?? {},
+          attemptCount,
+        });
 
         const pauseWorkflowMutation = `
           mutation PauseWorkflowRun(
@@ -322,12 +280,9 @@ export async function executeWorkflow({
           }
         `;
 
-        await hasuraRequest(
-          pauseWorkflowMutation,
-          {
-            workflowRunId
-          }
-        );
+        await hasuraRequest(pauseWorkflowMutation, {
+          workflowRunId,
+        });
 
         // IMPORTANT:
         // Do not wait here.
@@ -340,8 +295,7 @@ export async function executeWorkflow({
           workflowRunId,
           stepRunId: stepRun.id,
           message:
-            result.output?.message ||
-            "Workflow is waiting for approval."
+            result.output?.message || "Workflow is waiting for approval.",
         };
       }
 
@@ -375,44 +329,32 @@ export async function executeWorkflow({
         }
       `;
 
-      await hasuraRequest(
-        completeStepMutation,
-        {
-          stepRunId: stepRun.id,
-          output: result.output ?? {},
-          attemptCount
-        }
-      );
+      await hasuraRequest(completeStepMutation, {
+        stepRunId: stepRun.id,
+        output: result.output ?? {},
+        attemptCount,
+      });
 
       // -------------------------------------------------------
       // Store previous output for next step
       // -------------------------------------------------------
 
-      context.previousOutput =
-        result.output ?? null;
+      context.previousOutput = result.output ?? null;
 
-      context.outputs[step.id] =
-        result.output ?? null;
+      context.outputs[step.id] = result.output ?? null;
 
-      currentInput =
-        result.output ?? null;
+      currentInput = result.output ?? null;
 
       // -------------------------------------------------------
       // CONDITIONAL BRANCH
       // -------------------------------------------------------
 
-      if (
-        step.type ===
-        "conditional_branch"
-      ) {
-        const branchResult =
-          result.output?.result;
+      if (step.type === "conditional_branch") {
+        const branchResult = result.output?.result;
 
-        const truePosition =
-          step.config?.true_next_position;
+        const truePosition = step.config?.true_next_position;
 
-        const falsePosition =
-          step.config?.false_next_position;
+        const falsePosition = step.config?.false_next_position;
 
         let nextPosition;
 
@@ -422,16 +364,10 @@ export async function executeWorkflow({
           nextPosition = falsePosition;
         }
 
-        if (
-          typeof nextPosition ===
-          "number"
-        ) {
-          const nextIndex =
-            steps.findIndex(
-              (candidate) =>
-                candidate.position ===
-                nextPosition
-            );
+        if (typeof nextPosition === "number") {
+          const nextIndex = steps.findIndex(
+            (candidate) => candidate.position === nextPosition,
+          );
 
           if (nextIndex !== -1) {
             index = nextIndex;
@@ -472,32 +408,23 @@ export async function executeWorkflow({
       }
     `;
 
-    await hasuraRequest(
-      completeWorkflowMutation,
-      {
-        workflowRunId
-      }
-    );
+    await hasuraRequest(completeWorkflowMutation, {
+      workflowRunId,
+    });
 
     // =========================================================
     // 8. INCREMENT QUOTA
     // =========================================================
 
-    await incrementQuota(
-      organizationId
-    );
+    await incrementQuota(organizationId);
 
     return {
       success: true,
       status: "completed",
-      workflowRunId
+      workflowRunId,
     };
-
   } catch (error) {
-    console.error(
-      "[WORKFLOW ERROR]",
-      error
-    );
+    console.error("[WORKFLOW ERROR]", error);
 
     // ---------------------------------------------------------
     // If workflow never started, don't try to update a run.
@@ -535,21 +462,12 @@ export async function executeWorkflow({
           }
         `;
 
-        await hasuraRequest(
-          failStepMutation,
-          {
-            stepRunId:
-              currentStepRunId,
-            error:
-              error.message ||
-              "Step execution failed"
-          }
-        );
+        await hasuraRequest(failStepMutation, {
+          stepRunId: currentStepRunId,
+          error: error.message || "Step execution failed",
+        });
       } catch (stepError) {
-        console.error(
-          "[STEP FAILURE UPDATE ERROR]",
-          stepError
-        );
+        console.error("[STEP FAILURE UPDATE ERROR]", stepError);
       }
     }
 
@@ -579,26 +497,17 @@ export async function executeWorkflow({
         }
       `;
 
-      await hasuraRequest(
-        failWorkflowMutation,
-        {
-          workflowRunId,
-          error:
-            error.message ||
-            "Workflow execution failed"
-        }
-      );
+      await hasuraRequest(failWorkflowMutation, {
+        workflowRunId,
+        error: error.message || "Workflow execution failed",
+      });
     } catch (workflowError) {
-      console.error(
-        "[WORKFLOW FAILURE UPDATE ERROR]",
-        workflowError
-      );
+      console.error("[WORKFLOW FAILURE UPDATE ERROR]", workflowError);
     }
 
     throw error;
   }
 }
-
 
 /**
  * Increment organization quota after
@@ -610,9 +519,7 @@ export async function executeWorkflow({
  *          ↓
  * quota_used + 1
  */
-async function incrementQuota(
-  organizationId
-) {
+async function incrementQuota(organizationId) {
   const mutation = `
     mutation IncrementOrganizationQuota(
       $organizationId: uuid!
@@ -637,20 +544,11 @@ async function incrementQuota(
     }
   `;
 
-  const result =
-    await hasuraRequest(
-      mutation,
-      {
-        organizationId
-      }
-    );
+  const result = await hasuraRequest(mutation, {
+    organizationId,
+  });
 
-  if (
-    result.update_organizations
-      .affected_rows !== 1
-  ) {
-    throw new Error(
-      "QUOTA_INCREMENT_FAILED"
-    );
+  if (result.update_organizations.affected_rows !== 1) {
+    throw new Error("QUOTA_INCREMENT_FAILED");
   }
 }

@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import { triggerWorkflowRun } from "./actions/triggerWorkflowRun.js";
-import { approveStep } from "./actions/approveStep.js";
+import { approveStepHandler } from "./actions/approveStep.js";
 
 dotenv.config();
 
@@ -18,19 +18,13 @@ app.get("/health", (req, res) => {
   res.json({
     success: true,
     service: "flowforge-ai-server",
-    status: "healthy"
+    status: "healthy",
   });
 });
 
-app.post(
-  "/actions/trigger-workflow-run",
-  triggerWorkflowRun
-);
+app.post("/actions/trigger-workflow-run", triggerWorkflowRun);
 
-app.post(
-  "/actions/approve-step",
-  approveStep
-);
+app.post("/actions/approve-step", approveStepHandler);
 
 app.listen(PORT, () => {
   console.log(`FlowForge AI server running on port ${PORT}`);
