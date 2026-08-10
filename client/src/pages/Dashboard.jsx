@@ -74,7 +74,7 @@ export default function Dashboard() {
         query Run($id: uuid!) {
           workflow_runs_by_pk(id: $id) {
             id status trigger_type error started_at completed_at
-            step_runs(order_by: { created_at: asc }) {
+            step_runs(order_by: { started_at: asc }) {
               id workflow_step_id status input output error attempt_count approved_by approved_at started_at completed_at
               workflow_step { id position name type }
             }
@@ -141,15 +141,16 @@ export default function Dashboard() {
     setBusy(true); setError("");
     try {
       const data = await graphqlRequest(`
-        mutation CreateWorkflow($orgId: uuid!, $userId: uuid!) {
-          insert_workflows_one(object: {
+        mutation CreateWorkflow($orgId: uuid!) {
+        insert_workflows_one(object: {
             organization_id: $orgId
             name: "Customer Approval Workflow"
             description: "LLM → HTTP → conditional → approval → DB write"
-            created_by: $userId
-          }) { id }
+        }) {
+            id
         }
-      `, { orgId: membership.organization_id, userId: user.id });
+        }
+      `, { orgId: membership.organization_id });
       const workflowId = data.insert_workflows_one.id;
       const steps = [
         { position: 1, name: "Analyze Request", type: "llm_call", config: { model: "gemini-2.5-flash", prompt: "Analyze this customer request. Start with APPROVE if it should proceed. Request: {{input}}" } },

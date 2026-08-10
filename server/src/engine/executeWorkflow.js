@@ -20,14 +20,17 @@ export async function executeWorkflow({
   try {
     // Human-triggered runs must be owner/editor members of the workflow org.
     if (triggerType === "webhook") {
-      const data = await hasuraRequest(`
+      const data = await hasuraRequest(
+        `
         query GetWebhookWorkflow($workflowId: uuid!) {
           workflows_by_pk(id: $workflowId) {
             id
             organization_id
           }
         }
-      `, { workflowId });
+      `,
+        { workflowId },
+      );
 
       workflow = data.workflows_by_pk;
       if (!workflow) throw new Error("WORKFLOW_NOT_FOUND");
@@ -54,21 +57,23 @@ export async function executeWorkflow({
 
     // Create a run only once. Approval resumes reuse the paused run.
     if (!workflowRunId) {
-      const runData = await hasuraRequest(`
+      const runData = await hasuraRequest(
+        `
         mutation CreateWorkflowRun(
           $workflowId: uuid!
           $triggerType: String!
           $createdBy: uuid
+          $startedAt: timestamptz!
         ) {
-          insert_workflow_runs_one(
-            object: {
-              workflow_id: $workflowId
-              trigger_type: $triggerType
-              status: "running"
-              created_by: $createdBy
-              started_at: "now()"
-            }
-          ) {
+            insert_workflow_runs_one(
+              object: {
+                workflow_id: $workflowId
+                trigger_type: $triggerType
+                status: "running"
+                created_by: $createdBy
+                started_at: $startedAt
+              }
+            ){
             id
             workflow_id
             status
@@ -77,25 +82,32 @@ export async function executeWorkflow({
             started_at
           }
         }
-      `, {
-        workflowId,
-        triggerType,
-        createdBy: userId,
-      });
+      `,
+        {
+          workflowId,
+          triggerType,
+          createdBy: userId,
+          startedAt: new Date().toISOString(),
+        },
+      );
 
       workflowRunId = runData.insert_workflow_runs_one.id;
     } else {
-      await hasuraRequest(`
+      await hasuraRequest(
+        `
         mutation ResumeWorkflowRun($workflowRunId: uuid!) {
           update_workflow_runs_by_pk(
             pk_columns: { id: $workflowRunId }
             _set: { status: "running", error: null }
           ) { id status }
         }
-      `, { workflowRunId });
+      `,
+        { workflowRunId },
+      );
     }
 
-    const stepsData = await hasuraRequest(`
+    const stepsData = await hasuraRequest(
+      `
       query GetWorkflowSteps($workflowId: uuid!) {
         workflow_steps(
           where: { workflow_id: { _eq: $workflowId } }
@@ -109,7 +121,9 @@ export async function executeWorkflow({
           config
         }
       }
-    `, { workflowId });
+    `,
+      { workflowId },
+    );
 
     const steps = stepsData.workflow_steps || [];
     if (!steps.length) throw new Error("WORKFLOW_HAS_NO_STEPS");
@@ -129,17 +143,20 @@ export async function executeWorkflow({
     let currentInput = initialInput;
 
     if (existingWorkflowRunId) {
-      const previousData = await hasuraRequest(`
+      const previousData = await hasuraRequest(
+        `
         query GetPreviousStepRuns($workflowRunId: uuid!) {
-          step_runs(
-            where: { workflow_run_id: { _eq: $workflowRunId } }
-            order_by: { created_at: asc }
-          ) {
-            workflow_step_id
-            output
-          }
-        }
-      `, { workflowRunId });
+      step_runs(
+        where: { workflow_run_id: { _eq: $workflowRunId } }
+        order_by: { started_at: asc }
+      ) {
+        workflow_step_id
+        output
+      }
+    }
+      `,
+        { workflowRunId },
+      );
 
       for (const run of previousData.step_runs || []) {
         context.outputs[run.workflow_step_id] = run.output;
@@ -149,7 +166,9 @@ export async function executeWorkflow({
 
     let index = 0;
     if (startAfterPosition !== null && startAfterPosition !== undefined) {
-      const nextIndex = steps.findIndex((s) => s.position > Number(startAfterPosition));
+      const nextIndex = steps.findIndex(
+        (s) => s.position > Number(startAfterPosition),
+      );
       index = nextIndex === -1 ? steps.length : nextIndex;
     }
 
@@ -160,28 +179,47 @@ export async function executeWorkflow({
       // only owners can add db_write/notify/webhook steps. Once a workflow is saved,
       // an authorized owner/editor run may execute its configured steps.
 
-      const stepRunData = await hasuraRequest(`
+      if (
+          (step.type === "db_write" || step.type === "notify") &&
+          role !== "owner"
+        ) {
+          const error = new Error(
+            `${step.type} requires owner permission`
+          );
+
+          error.code = "STEP_FORBIDDEN";
+
+          throw error;
+        }
+
+      const stepRunData = await hasuraRequest(
+        
+        `
         mutation CreateStepRun(
           $workflowRunId: uuid!
           $workflowStepId: uuid!
           $input: jsonb!
+          $startedAt: timestamptz!
         ) {
           insert_step_runs_one(
             object: {
-              workflow_run_id: $workflowRunId
-              workflow_step_id: $workflowStepId
-              status: "running"
-              input: $input
-              attempt_count: 0
-              started_at: "now()"
+                workflow_run_id: $workflowRunId
+                workflow_step_id: $workflowStepId
+                status: "running"
+                input: $input
+                attempt_count: 0
+                started_at: $startedAt
             }
           ) { id }
         }
-      `, {
-        workflowRunId,
-        workflowStepId: step.id,
-        input: currentInput ?? {},
-      });
+      `,
+        {
+          workflowRunId,
+          workflowStepId: step.id,
+          input: currentInput ?? {},
+          startedAt: new Date().toISOString(),
+        },
+      );
 
       const stepRunId = stepRunData.insert_step_runs_one.id;
       currentStepRunId = stepRunId;
@@ -191,46 +229,64 @@ export async function executeWorkflow({
       const attemptCount = result.attemptCount || 1;
 
       if (result.status === "paused") {
-        await hasuraRequest(`
+        await hasuraRequest(
+          `
           mutation PauseStep($stepRunId: uuid!, $output: jsonb!, $attemptCount: Int!) {
             update_step_runs_by_pk(
               pk_columns: { id: $stepRunId }
               _set: { status: "paused", output: $output, attempt_count: $attemptCount }
             ) { id status }
           }
-        `, { stepRunId, output: result.output ?? {}, attemptCount });
+        `,
+          { stepRunId, output: result.output ?? {}, attemptCount },
+        );
 
-        await hasuraRequest(`
+        await hasuraRequest(
+          `
           mutation PauseWorkflow($workflowRunId: uuid!) {
             update_workflow_runs_by_pk(
               pk_columns: { id: $workflowRunId }
               _set: { status: "paused" }
             ) { id status }
           }
-        `, { workflowRunId });
+        `,
+          { workflowRunId },
+        );
 
         return {
           success: true,
           status: "paused",
           workflowRunId,
           stepRunId,
-          message: result.output?.message || "Workflow is waiting for approval.",
+          message:
+            result.output?.message || "Workflow is waiting for approval.",
         };
       }
 
-      await hasuraRequest(`
-        mutation CompleteStep($stepRunId: uuid!, $output: jsonb!, $attemptCount: Int!) {
+      await hasuraRequest(
+        `
+        mutation CompleteStep($stepRunId: uuid!,
+          $output: jsonb!,
+          $attemptCount: Int!,
+          $completedAt: timestamptz!) {
           update_step_runs_by_pk(
             pk_columns: { id: $stepRunId }
             _set: {
               status: "completed"
               output: $output
               attempt_count: $attemptCount
-              completed_at: "now()"
+              completed_at: $completedAt
             }
           ) { id status }
         }
-      `, { stepRunId, output: result.output ?? {}, attemptCount });
+      `,
+        {
+          stepRunId,
+          output: result.output ?? {},
+          attemptCount,
+          completedAt: new Date().toISOString(),
+        },
+      );
 
       context.previousOutput = result.output ?? null;
       context.outputs[step.id] = result.output ?? null;
@@ -253,14 +309,27 @@ export async function executeWorkflow({
       index += 1;
     }
 
-    await hasuraRequest(`
-      mutation CompleteWorkflow($workflowRunId: uuid!) {
+    await hasuraRequest(
+      `
+      mutation CompleteWorkflow(
+        $workflowRunId: uuid!
+        $completedAt: timestamptz!
+      ) {
         update_workflow_runs_by_pk(
           pk_columns: { id: $workflowRunId }
-          _set: { status: "completed", completed_at: "now()" }
-        ) { id status completed_at }
+          _set: {
+            status: "completed"
+            completed_at: $completedAt
+          }
+        ) {
+          id
+          status
+          completed_at
+        }
       }
-    `, { workflowRunId });
+    `,
+      { workflowRunId, completedAt: new Date().toISOString(), },
+    );
 
     // Count a run exactly once, when it actually completes.
     await incrementQuota(organizationId);
@@ -272,28 +341,63 @@ export async function executeWorkflow({
     if (workflowRunId) {
       if (currentStepRunId) {
         try {
-          await hasuraRequest(`
-            mutation FailStep($stepRunId: uuid!, $error: String!, $attemptCount: Int!) {
+          await hasuraRequest(
+            `
+            mutation FailStep(
+              $stepRunId: uuid!
+              $error: String!
+              $attemptCount: Int!
+              $completedAt: timestamptz!
+            ) {
               update_step_runs_by_pk(
                 pk_columns: { id: $stepRunId }
-                _set: { status: "failed", error: $error, completed_at: "now()" }
-              ) { id status }
+                _set: {
+                  status: "failed"
+                  error: $error
+                  attempt_count: $attemptCount
+                  completed_at: $completedAt
+                }
+              ) {
+                id
+                status
+              }
             }
-          `, { stepRunId: currentStepRunId, error: error.message || "Step failed", attemptCount: error.attemptCount || 1 });
+          `,
+            {
+              stepRunId: currentStepRunId,
+              error: error.message || "Step failed",
+              attemptCount: error.attemptCount || 1,
+              completedAt: new Date().toISOString(),
+            },
+          );
         } catch (e) {
           console.error("[STEP FAILURE UPDATE ERROR]", e);
         }
       }
 
       try {
-        await hasuraRequest(`
-          mutation FailWorkflow($workflowRunId: uuid!, $error: String!) {
+        await hasuraRequest(
+          `
+          mutation FailWorkflow(
+            $workflowRunId: uuid!
+            $error: String!
+            $completedAt: timestamptz!
+          ) {
             update_workflow_runs_by_pk(
               pk_columns: { id: $workflowRunId }
-              _set: { status: "failed", error: $error, attempt_count: $attemptCount, completed_at: "now()" }
-            ) { id status }
+              _set: {
+                status: "failed"
+                error: $error
+                completed_at: $completedAt
+              }
+            ) {
+              id
+              status
+            }
           }
-        `, { workflowRunId, error: error.message || "Workflow failed" });
+        `,
+          { workflowRunId, error: error.message || "Workflow failed", completedAt: new Date().toISOString() },
+        );
       } catch (e) {
         console.error("[WORKFLOW FAILURE UPDATE ERROR]", e);
       }

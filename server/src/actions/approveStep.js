@@ -30,17 +30,13 @@ export async function approveStepHandler(req, res) {
     // 1. Get authenticated user from Hasura session variables
     // ----------------------------------------------------------
 
-    const userId =
-      req.body?.session_variables?.[
-        "x-hasura-user-id"
-      ];
+    const userId = req.body?.session_variables?.["x-hasura-user-id"];
 
     // ----------------------------------------------------------
     // 2. Get step_run_id from Hasura Action input
     // ----------------------------------------------------------
 
-    const stepRunId =
-      req.body?.input?.step_run_id;
+    const stepRunId = req.body?.input?.step_run_id;
 
     // ----------------------------------------------------------
     // 3. Validate authentication
@@ -50,7 +46,7 @@ export async function approveStepHandler(req, res) {
       return res.status(401).json({
         success: false,
         code: "UNAUTHENTICATED",
-        message: "Authentication required"
+        message: "Authentication required",
       });
     }
 
@@ -62,13 +58,11 @@ export async function approveStepHandler(req, res) {
       return res.status(400).json({
         success: false,
         code: "INVALID_INPUT",
-        message: "step_run_id is required"
+        message: "step_run_id is required",
       });
     }
 
-    console.log(
-      `[ACTION] approveStep: stepRun=${stepRunId}, user=${userId}`
-    );
+    console.log(`[ACTION] approveStep: stepRun=${stepRunId}, user=${userId}`);
 
     // ----------------------------------------------------------
     // 5. Call approval business logic
@@ -76,7 +70,7 @@ export async function approveStepHandler(req, res) {
 
     const result = await approveStep({
       stepRunId,
-      userId
+      userId,
     });
 
     // ----------------------------------------------------------
@@ -87,14 +81,10 @@ export async function approveStepHandler(req, res) {
       success: true,
       workflowRunId: result.workflowRunId,
       status: result.status,
-      message: result.message
+      message: result.message,
     });
-
   } catch (error) {
-    console.error(
-      "[ACTION] approveStep failed:",
-      error
-    );
+    console.error("[ACTION] approveStep failed:", error);
 
     let statusCode = 500;
 
@@ -111,31 +101,21 @@ export async function approveStepHandler(req, res) {
       statusCode = 403;
     }
 
-    if (
-      error.code === "INVALID_APPROVAL_STATE"
-    ) {
+    if (error.code === "INVALID_APPROVAL_STATE") {
       statusCode = 409;
     }
 
-    if (
-      error.code === "INVALID_INPUT" ||
-      error.code === "STEP_RUN_NOT_FOUND"
-    ) {
+    if (error.code === "INVALID_INPUT" || error.code === "STEP_RUN_NOT_FOUND") {
       statusCode = 400;
     }
 
     return res.status(statusCode).json({
       success: false,
-      code:
-        error.code ||
-        "APPROVAL_FAILED",
-      message:
-        error.message ||
-        "Failed to approve step"
+      code: error.code || "APPROVAL_FAILED",
+      message: error.message || "Failed to approve step",
     });
   }
 }
-
 
 /**
  * ============================================================
@@ -164,10 +144,7 @@ export async function approveStepHandler(req, res) {
  * 9. Approve step
  * 10. Resume workflow
  */
-export async function approveStep({
-  stepRunId,
-  userId
-}) {
+export async function approveStep({ stepRunId, userId }) {
   // ----------------------------------------------------------
   // 1. Load step run + workflow context
   // ----------------------------------------------------------
@@ -207,24 +184,18 @@ export async function approveStep({
     }
   `;
 
-  const data = await hasuraRequest(
-    query,
-    {
-      stepRunId
-    }
-  );
+  const data = await hasuraRequest(query, {
+    stepRunId,
+  });
 
-  const stepRun =
-    data.step_runs?.[0];
+  const stepRun = data.step_runs?.[0];
 
   // ----------------------------------------------------------
   // 2. Step run must exist
   // ----------------------------------------------------------
 
   if (!stepRun) {
-    const error = new Error(
-      "Step run not found"
-    );
+    const error = new Error("Step run not found");
 
     error.code = "STEP_RUN_NOT_FOUND";
 
@@ -235,16 +206,12 @@ export async function approveStep({
   // 3. Verify workflow context
   // ----------------------------------------------------------
 
-  const workflowRun =
-    stepRun.workflow_run;
+  const workflowRun = stepRun.workflow_run;
 
-  const workflow =
-    workflowRun?.workflow;
+  const workflow = workflowRun?.workflow;
 
   if (!workflowRun || !workflow) {
-    const error = new Error(
-      "Workflow context not found"
-    );
+    const error = new Error("Workflow context not found");
 
     error.code = "WORKFLOW_NOT_FOUND";
 
@@ -255,13 +222,8 @@ export async function approveStep({
   // 4. Verify approval gate
   // ----------------------------------------------------------
 
-  if (
-    stepRun.workflow_step?.type !==
-    "approval_gate"
-  ) {
-    const error = new Error(
-      "This step is not an approval gate"
-    );
+  if (stepRun.workflow_step?.type !== "approval_gate") {
+    const error = new Error("This step is not an approval gate");
 
     error.code = "INVALID_APPROVAL_STATE";
 
@@ -273,9 +235,7 @@ export async function approveStep({
   // ----------------------------------------------------------
 
   if (stepRun.status !== "paused") {
-    const error = new Error(
-      "Approval step is not currently paused"
-    );
+    const error = new Error("Approval step is not currently paused");
 
     error.code = "INVALID_APPROVAL_STATE";
 
@@ -287,9 +247,7 @@ export async function approveStep({
   // ----------------------------------------------------------
 
   if (workflowRun.status !== "paused") {
-    const error = new Error(
-      "Workflow run is not currently paused"
-    );
+    const error = new Error("Workflow run is not currently paused");
 
     error.code = "INVALID_APPROVAL_STATE";
 
@@ -323,27 +281,19 @@ export async function approveStep({
     }
   `;
 
-  const membershipData =
-    await hasuraRequest(
-      membershipQuery,
-      {
-        organizationId:
-          workflow.organization_id,
-        userId
-      }
-    );
+  const membershipData = await hasuraRequest(membershipQuery, {
+    organizationId: workflow.organization_id,
+    userId,
+  });
 
-  const membership =
-    membershipData.org_members?.[0];
+  const membership = membershipData.org_members?.[0];
 
   // ----------------------------------------------------------
   // 8. User must belong to organization
   // ----------------------------------------------------------
 
   if (!membership) {
-    const error = new Error(
-      "You are not a member of this organization"
-    );
+    const error = new Error("You are not a member of this organization");
 
     error.code = "ORG_ACCESS_DENIED";
 
@@ -354,13 +304,8 @@ export async function approveStep({
   // 9. Only owner/editor can approve
   // ----------------------------------------------------------
 
-  if (
-    membership.role !== "owner" &&
-    membership.role !== "editor"
-  ) {
-    const error = new Error(
-      "You do not have permission to approve this step"
-    );
+  if (membership.role !== "owner" && membership.role !== "editor") {
+    const error = new Error("You do not have permission to approve this step");
 
     error.code = "APPROVAL_FORBIDDEN";
 
@@ -375,6 +320,7 @@ export async function approveStep({
     mutation ApproveStep(
       $stepRunId: uuid!
       $userId: uuid!
+      $approvedAt: timestamptz!
     ) {
       update_step_runs(
         where: {
@@ -384,36 +330,30 @@ export async function approveStep({
         _set: {
           status: "completed"
           approved_by: $userId
-          approved_at: "now()"
+          approved_at: $approvedAt
         }
-      ) {
-        affected_rows
+        ) {
+          affected_rows
 
-        returning {
-          id
-          status
-          approved_by
-          approved_at
+          returning {
+            id
+            status
+            approved_by
+            approved_at
+          }
         }
       }
-    }
-  `;
+    `;
 
-  const updateData =
-    await hasuraRequest(
-      updateMutation,
-      {
-        stepRunId,
-        userId
-      }
-    );
+  const updateData = await hasuraRequest(updateMutation, {
+    stepRunId,
+    userId,
+    approvedAt: new Date().toISOString(),
+  });
 
-  if (
-    updateData.update_step_runs
-      ?.affected_rows !== 1
-  ) {
+  if (updateData.update_step_runs?.affected_rows !== 1) {
     const error = new Error(
-      "Approval step was already approved or is no longer paused"
+      "Approval step was already approved or is no longer paused",
     );
 
     error.code = "INVALID_APPROVAL_STATE";
@@ -433,25 +373,19 @@ export async function approveStep({
   // We identified this as another issue in your project.
   // ----------------------------------------------------------
 
-  const result =
-    await executeWorkflow({
-      workflowId: workflow.id,
-      userId,
-      triggerType: "approval_resume",
-      existingWorkflowRunId:
-        workflowRun.id,
-      startAfterPosition:
-        stepRun.workflow_step.position
-    });
+  const result = await executeWorkflow({
+    workflowId: workflow.id,
+    userId,
+    triggerType: "approval_resume",
+    existingWorkflowRunId: workflowRun.id,
+    startAfterPosition: stepRun.workflow_step.position,
+  });
 
   return {
-    workflowRunId:
-      workflowRun.id,
+    workflowRunId: workflowRun.id,
 
-    status:
-      result.status,
+    status: result.status,
 
-    message:
-      "Approval accepted and workflow resumed"
+    message: "Approval accepted and workflow resumed",
   };
 }
