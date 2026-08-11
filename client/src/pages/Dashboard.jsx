@@ -136,26 +136,72 @@ export default function Dashboard() {
   useEffect(() => { load(); }, [load]);
 
   const refreshRun = useCallback(async (runId) => {
-    if (!runId) { setRun(null); setStepRuns([]); return null; }
+    if (!runId) {
+      setRun(null);
+      setStepRuns([]);
+      return null;
+    }
+
     const data = await graphqlRequest(`query Run($id: uuid!) {
-      workflow_runs_by_pk(id: $id) {
-        id workflow_id status trigger_type error started_at completed_at created_at
-        step_runs(order_by: { created_at: asc }) {
-          id workflow_run_id workflow_step_id status input output error attempt_count approved_by approved_at started_at completed_at
-          workflow_step { id position name type }
+    workflow_runs_by_pk(id: $id) {
+      id
+      workflow_id
+      status
+      trigger_type
+      error
+      started_at
+      completed_at
+
+      step_runs(order_by: { started_at: asc }) {
+        id
+        workflow_run_id
+        workflow_step_id
+        status
+        input
+        output
+        error
+        attempt_count
+        approved_by
+        approved_at
+        started_at
+        completed_at
+        workflow_step {
+          id
+          position
+          name
+          type
         }
       }
-    }`, { id: runId });
+    }
+  }`, { id: runId });
+
     const next = data.workflow_runs_by_pk;
-    if (!next) { setRun(null); setStepRuns([]); return null; }
-    setRun(next); setStepRuns(next.step_runs || []); return next;
+
+    if (!next) {
+      setRun(null);
+      setStepRuns([]);
+      return null;
+    }
+
+    setRun(next);
+    setStepRuns(next.step_runs || []);
+
+    return next;
   }, []);
 
   const refreshLatestRun = useCallback(async (workflowId) => {
     if (!workflowId) return null;
+
     const data = await graphqlRequest(`query LatestRun($workflowId: uuid!) {
-      workflow_runs(where: { workflow_id: { _eq: $workflowId } }, order_by: { created_at: desc }, limit: 1) { id }
-    }`, { workflowId });
+    workflow_runs(
+      where: { workflow_id: { _eq: $workflowId } },
+      order_by: { started_at: desc },
+      limit: 1
+    ) {
+      id
+    }
+  }`, { workflowId });
+
     return refreshRun(data.workflow_runs?.[0]?.id);
   }, [refreshRun]);
 
@@ -186,10 +232,19 @@ export default function Dashboard() {
 
   const latestStepRuns = useMemo(() => {
     const map = new Map();
+
     for (const item of stepRuns) {
       const old = map.get(item.workflow_step_id);
-      if (!old || new Date(item.created_at || item.started_at || 0) >= new Date(old.created_at || old.started_at || 0)) map.set(item.workflow_step_id, item);
+
+      if (
+        !old ||
+        new Date(item.started_at || 0) >=
+        new Date(old.started_at || 0)
+      ) {
+        map.set(item.workflow_step_id, item);
+      }
     }
+
     return map;
   }, [stepRuns]);
 
@@ -416,7 +471,7 @@ function BuilderView({ workflow, canEdit, isOwner, busy, onSaveDetails, onEditSt
     <section className="builder-column">
       <div className="subcard"><div className="subcard-head"><div><span className="eyebrow">DEFINITION</span><h3>Workflow settings</h3></div>{canEdit && <button className="secondary" disabled={busy} onClick={() => onSaveDetails(name.trim(), description.trim())}>Save</button>}</div><label>Name<input value={name} onChange={(e) => setName(e.target.value)} disabled={!canEdit} /></label><label>Description<textarea rows="3" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canEdit} /></label></div>
       <div className="subcard"><div className="subcard-head"><div><span className="eyebrow">EXECUTION GRAPH</span><h3>Ordered steps</h3></div>{canEdit && <button className="primary small" onClick={onAddStep}>+ Add step</button>}</div>
-        <div className="step-list">{(workflow.workflow_steps || []).map((step) => <div className="builder-step" key={step.id}><span className="step-index">{step.position}</span><div className="step-copy"><strong>{step.name}</strong><span>{step.type}</span></div><div className="step-flags">{["db_write", "notify"].includes(step.type) && <em className="sensitive">Owner only</em>}</div>{canEdit && (!['db_write','notify'].includes(step.type) || isOwner) && <><button className="icon-btn" onClick={() => onEditStep(step)} title="Edit">✎</button><button className="icon-btn danger" onClick={() => onDeleteStep(step.id)} title="Delete">×</button></>}</div>)}</div>
+        <div className="step-list">{(workflow.workflow_steps || []).map((step) => <div className="builder-step" key={step.id}><span className="step-index">{step.position}</span><div className="step-copy"><strong>{step.name}</strong><span>{step.type}</span></div><div className="step-flags">{["db_write", "notify"].includes(step.type) && <em className="sensitive">Owner only</em>}</div>{canEdit && (!['db_write', 'notify'].includes(step.type) || isOwner) && <><button className="icon-btn" onClick={() => onEditStep(step)} title="Edit">✎</button><button className="icon-btn danger" onClick={() => onDeleteStep(step.id)} title="Delete">×</button></>}</div>)}</div>
       </div>
     </section>
     <section className="builder-column">
