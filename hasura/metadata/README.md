@@ -1,11 +1,38 @@
-# Managed Hasura metadata
+# FlowForge AI — Hasura Metadata
 
-The Nhost Cloud project is the live source of truth for Hasura metadata. The project was configured manually in the Nhost/Hasura console during development. This directory documents the security contract so it can be reproduced/exported before submission.
+This directory contains the Hasura metadata export supplied for the current FlowForge AI project.
 
-Required tracked tables: organizations, org_members, workflows, workflow_steps, workflow_triggers, workflow_runs, step_runs, workflow_results, notification_events.
+## Included
 
-Required relationships: organization → members/workflows; workflow → organization/steps/triggers/runs; workflow_run → workflow/step_runs; step_run → workflow_run/workflow_step.
+- `metadata.json` — complete Hasura metadata export.
+- Tracked application tables:
+  - `organizations`
+  - `org_members`
+  - `workflows`
+  - `workflow_steps`
+  - `workflow_triggers`
+  - `workflow_runs`
+  - `step_runs`
+  - `workflow_results`
+  - `notification_events`
+- Actions:
+  - `triggerWorkflowRun(workflow_id)`
+  - `approveStep(step_run_id)`
+- Event Trigger:
+  - `notification_events` → notification event webhook
 
-Required Actions: `triggerWorkflowRun(workflow_id)` and `approveStep(step_run_id)`.
+## Important before submission
 
-Required Event Trigger: `notification_events` → `POST /events/notification`.
+The supplied metadata currently contains the development ngrok handler URL for the Actions and notification Event Trigger. Replace that development URL with the final deployed backend HTTPS URL before importing/deploying this metadata for the assessment.
+
+The backend handlers expected by the current project are:
+
+- `/actions/trigger-workflow-run`
+- `/actions/approve-step`
+- `/events/notification`
+
+Do not put `HASURA_ADMIN_SECRET` or any other secret into this metadata file.
+
+## Relationship/security scope
+
+The metadata preserves the current Nhost/Hasura configuration from the supplied export, including organization-scoped permissions and Owner/Editor/Viewer workflow permissions.
