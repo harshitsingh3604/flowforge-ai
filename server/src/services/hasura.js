@@ -1,4 +1,4 @@
-const HASURA_URL = process.env.HASURA_GRAPHQL_URL || process.env.HASURA_GRAPHQL_ENDPOINT;
+const HASURA_URL = process.env.HASURA_GRAPHQL_URL;
 const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET;
 
 function assertConfig() {

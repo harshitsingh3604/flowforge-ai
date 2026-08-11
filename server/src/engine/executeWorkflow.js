@@ -1,5 +1,6 @@
 import { hasuraRequest } from "../services/hasura.js";
-import { checkQuota, incrementQuota } from "../services/quota.js";
+// import { checkQuota, incrementQuota } from "../services/quota.js";
+import { consumeQuota } from "../services/quota.js";
 import { getWorkflowAuthorization } from "../services/authorization.js";
 import { executeStep } from "./executeStep.js";
 
@@ -40,7 +41,8 @@ async function loadSteps(workflowId) {
   );
 
   const steps = data.workflow_steps || [];
-  if (!steps.length) throw appError("Workflow has no steps", "WORKFLOW_HAS_NO_STEPS");
+  if (!steps.length)
+    throw appError("Workflow has no steps", "WORKFLOW_HAS_NO_STEPS");
   return steps;
 }
 
@@ -119,19 +121,32 @@ export async function executeWorkflow({
     const workflow = await loadWorkflow(workflowId);
     organizationId = workflow.organization_id;
 
-    if (triggerType === "webhook" || triggerType === "database_event" || triggerType === "scheduled") {
+    if (
+      triggerType === "webhook" ||
+      triggerType === "database_event" ||
+      triggerType === "scheduled"
+    ) {
       role = "owner";
     } else {
       const authorization = await getWorkflowAuthorization(workflowId, userId);
       role = authorization.role;
       if (role !== "owner" && role !== "editor") {
-        throw appError("You cannot trigger this workflow.", "WORKFLOW_TRIGGER_FORBIDDEN");
+        throw appError(
+          "You cannot trigger this workflow.",
+          "WORKFLOW_TRIGGER_FORBIDDEN",
+        );
       }
     }
 
     if (!existingWorkflowRunId) {
-      await checkQuota(organizationId);
-      const run = await createRun({ workflowId, triggerType, userId });
+      await consumeQuota(organizationId);
+
+      const run = await createRun({
+        workflowId,
+        triggerType,
+        userId,
+      });
+
       workflowRunId = run.id;
     } else {
       const runData = await hasuraRequest(
@@ -141,8 +156,10 @@ export async function executeWorkflow({
         { runId: existingWorkflowRunId },
       );
       const run = runData.workflow_runs_by_pk;
-      if (!run || run.workflow_id !== workflowId) throw appError("Workflow run not found", "RUN_NOT_FOUND");
-      if (run.status !== "paused") throw appError("Workflow run is not paused", "INVALID_APPROVAL_STATE");
+      if (!run || run.workflow_id !== workflowId)
+        throw appError("Workflow run not found", "RUN_NOT_FOUND");
+      if (run.status !== "paused")
+        throw appError("Workflow run is not paused", "INVALID_APPROVAL_STATE");
 
       await hasuraRequest(
         `mutation ResumeWorkflowRun($runId: uuid!, $startedAt: timestamptz!) {
@@ -174,14 +191,17 @@ export async function executeWorkflow({
       for (const run of previousRuns) {
         if (run.status === "completed" || run.status === "paused") {
           context.outputs[run.workflow_step_id] = run.output;
-          if (run.output !== null && run.output !== undefined) currentInput = run.output;
+          if (run.output !== null && run.output !== undefined)
+            currentInput = run.output;
         }
       }
     }
 
     let index = 0;
     if (startAfterPosition !== null && startAfterPosition !== undefined) {
-      const nextIndex = steps.findIndex((step) => step.position > Number(startAfterPosition));
+      const nextIndex = steps.findIndex(
+        (step) => step.position > Number(startAfterPosition),
+      );
       index = nextIndex === -1 ? steps.length : nextIndex;
     }
 
@@ -189,7 +209,10 @@ export async function executeWorkflow({
     while (index < steps.length) {
       executions += 1;
       if (executions > MAX_STEP_EXECUTIONS) {
-        throw appError("Workflow exceeded the maximum step execution limit", "WORKFLOW_LOOP_LIMIT");
+        throw appError(
+          "Workflow exceeded the maximum step execution limit",
+          "WORKFLOW_LOOP_LIMIT",
+        );
       }
 
       const step = steps[index];
@@ -243,7 +266,11 @@ export async function executeWorkflow({
               _set: { status: "paused", output: $output, attempt_count: $attemptCount }
             ) { id status }
           }`,
-          { stepRunId: currentStepRunId, output: result.output ?? {}, attemptCount },
+          {
+            stepRunId: currentStepRunId,
+            output: result.output ?? {},
+            attemptCount,
+          },
         );
 
         await hasuraRequest(
@@ -261,7 +288,8 @@ export async function executeWorkflow({
           status: "paused",
           workflowRunId,
           stepRunId: currentStepRunId,
-          message: result.output?.message || "Workflow is waiting for approval.",
+          message:
+            result.output?.message || "Workflow is waiting for approval.",
         };
       }
 
@@ -295,9 +323,13 @@ export async function executeWorkflow({
       currentInput = result.output ?? null;
 
       if (step.type === "conditional_branch") {
-        const nextPosition = result.output?.result ? step.config?.true_next_position : step.config?.false_next_position;
+        const nextPosition = result.output?.result
+          ? step.config?.true_next_position
+          : step.config?.false_next_position;
         if (nextPosition !== undefined && nextPosition !== null) {
-          const nextIndex = steps.findIndex((candidate) => candidate.position === Number(nextPosition));
+          const nextIndex = steps.findIndex(
+            (candidate) => candidate.position === Number(nextPosition),
+          );
           if (nextIndex !== -1) {
             index = nextIndex;
             continue;
@@ -318,13 +350,16 @@ export async function executeWorkflow({
       { workflowRunId, completedAt: new Date().toISOString() },
     );
 
-    try {
-      await incrementQuota(organizationId);
-    } catch (quotaError) {
-      // The run is already durably completed. Do not turn a successful
-      // workflow into a failed workflow because usage accounting failed.
-      console.error("[QUOTA] Failed to increment completed-run usage", quotaError);
-    }
+    // try {
+    //   await incrementQuota(organizationId);
+    // } catch (quotaError) {
+    //   // The run is already durably completed. Do not turn a successful
+    //   // workflow into a failed workflow because usage accounting failed.
+    //   console.error(
+    //     "[QUOTA] Failed to increment completed-run usage",
+    //     quotaError,
+    //   );
+    // }
 
     return { success: true, status: "completed", workflowRunId };
   } catch (error) {
@@ -349,7 +384,10 @@ export async function executeWorkflow({
             },
           );
         } catch (updateError) {
-          console.error("[WORKFLOW ERROR] Failed to persist step failure", updateError);
+          console.error(
+            "[WORKFLOW ERROR] Failed to persist step failure",
+            updateError,
+          );
         }
       }
 
@@ -364,7 +402,10 @@ export async function executeWorkflow({
           { workflowRunId, error: errorMessage },
         );
       } catch (updateError) {
-        console.error("[WORKFLOW ERROR] Failed to persist workflow failure", updateError);
+        console.error(
+          "[WORKFLOW ERROR] Failed to persist workflow failure",
+          updateError,
+        );
       }
     }
 

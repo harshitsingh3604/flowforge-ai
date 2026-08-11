@@ -24,7 +24,7 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
-  return
+  return (
   <div className="auth-page">
     <div className="auth-card card">
       <div className="brand auth-brand">
@@ -63,5 +63,6 @@ export default function App() {
         <small>Passwords are intentionally not committed to the repository.</small>
       </div>
     </div>
-  </div>;
+  </div>
+  );
 }

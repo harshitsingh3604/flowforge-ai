@@ -1,49 +1,52 @@
 import { hasuraRequest } from "./hasura.js";
 
-export async function checkQuota(organizationId) {
+export async function consumeQuota(organizationId) {
   const data = await hasuraRequest(
-    `query CheckOrganizationQuota($organizationId: uuid!) {
-      organizations_by_pk(id: $organizationId) {
-        id quota_limit quota_used quota_period_start
+    `mutation ConsumeOrganizationQuota($organizationId: uuid!) {
+      update_organizations(
+        where: {
+          id: { _eq: $organizationId }
+          quota_used: { _lt: quota_limit }
+        }
+        _inc: {
+          quota_used: 1
+        }
+      ) {
+        affected_rows
+        returning {
+          id
+          quota_used
+          quota_limit
+          quota_period_start
+        }
       }
     }`,
     { organizationId },
   );
 
-  const organization = data.organizations_by_pk;
-  if (!organization) {
-    const error = new Error("Organization not found");
-    error.code = "ORG_NOT_FOUND";
-    throw error;
-  }
+  if (data.update_organizations.affected_rows === 0) {
+    const lookup = await hasuraRequest(
+      `query CheckOrganizationExists($organizationId: uuid!) {
+        organizations_by_pk(id: $organizationId) {
+          id
+          quota_limit
+          quota_used
+          quota_period_start
+        }
+      }`,
+      { organizationId },
+    );
 
-  if (Number(organization.quota_used) >= Number(organization.quota_limit)) {
+    if (!lookup.organizations_by_pk) {
+      const error = new Error("Organization not found");
+      error.code = "ORG_NOT_FOUND";
+      throw error;
+    }
+
     const error = new Error("Organization quota has been exhausted");
     error.code = "QUOTA_EXCEEDED";
     throw error;
   }
 
-  return organization;
-}
-
-export async function incrementQuota(organizationId) {
-  const data = await hasuraRequest(
-    `mutation IncrementQuota($organizationId: uuid!) {
-      update_organizations_by_pk(
-        pk_columns: { id: $organizationId }
-        _inc: { quota_used: 1 }
-      ) {
-        id quota_used quota_limit
-      }
-    }`,
-    { organizationId },
-  );
-
-  const updated = data.update_organizations_by_pk;
-  if (!updated) {
-    const error = new Error("Organization not found");
-    error.code = "ORG_NOT_FOUND";
-    throw error;
-  }
-  return updated;
+  return data.update_organizations.returning[0];
 }
