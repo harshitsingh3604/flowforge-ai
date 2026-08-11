@@ -25,6 +25,13 @@ The implementation intentionally keeps the product scope small while demonstrati
 
 ---
 
+## Live Application:
+https://flowforge-ai-murex.vercel.app/
+
+## GitHub:
+https://github.com/harshitsingh3604/flowforge-ai
+---
+
 ## 1. Product Overview
 
 A workflow consists of ordered steps.
