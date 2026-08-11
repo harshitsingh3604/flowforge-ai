@@ -1,37 +1,30 @@
 import { hasuraRequest } from "../services/hasura.js";
 
 export async function executeDbWrite({ input, context }) {
-  const llmStep = context.workflowSteps?.find((step) => step.type === "llm_call");
-  const dataToSave = (llmStep && context.outputs?.[llmStep.id]) ?? context.previousOutput ?? input ?? {};
+  const sourceStep = context.workflowSteps?.find((step) => step.type === "llm_call");
+  const dataToSave = (sourceStep && context.outputs?.[sourceStep.id]) ?? context.previousOutput ?? input ?? {};
 
-  const result = await hasuraRequest(`
-    mutation InsertWorkflowResult(
+  const result = await hasuraRequest(
+    `mutation InsertWorkflowResult(
       $workflowId: uuid!
       $workflowRunId: uuid!
       $stepRunId: uuid!
-      $organizationId: uuid!
       $data: jsonb!
     ) {
-      insert_workflow_results_one(
-        object: {
-          workflow_id: $workflowId
-          workflow_run_id: $workflowRunId
-          step_run_id: $stepRunId
-          organization_id: $organizationId
-          data: $data
-        }
-      ) {
-        id
-        created_at
-      }
-    }
-  `, {
-    workflowId: context.workflowId,
-    workflowRunId: context.workflowRunId,
-    stepRunId: context.stepRunId,
-    organizationId: context.organizationId,
-    data: dataToSave,
-  });
+      insert_workflow_results_one(object: {
+        workflow_id: $workflowId
+        workflow_run_id: $workflowRunId
+        step_run_id: $stepRunId
+        data: $data
+      }) { id created_at }
+    }`,
+    {
+      workflowId: context.workflowId,
+      workflowRunId: context.workflowRunId,
+      stepRunId: context.stepRunId,
+      data: dataToSave,
+    },
+  );
 
   return {
     status: "completed",

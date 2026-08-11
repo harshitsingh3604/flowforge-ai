@@ -7,15 +7,12 @@ export async function getWorkflowAuthorization(workflowId, userId) {
     throw error;
   }
 
-  const workflowData = await hasuraRequest(`
-    query GetWorkflow($workflowId: uuid!) {
-      workflows_by_pk(id: $workflowId) {
-        id
-        organization_id
-        name
-      }
-    }
-  `, { workflowId });
+  const workflowData = await hasuraRequest(
+    `query GetWorkflow($workflowId: uuid!) {
+      workflows_by_pk(id: $workflowId) { id organization_id name }
+    }`,
+    { workflowId },
+  );
 
   const workflow = workflowData.workflows_by_pk;
   if (!workflow) {
@@ -24,20 +21,15 @@ export async function getWorkflowAuthorization(workflowId, userId) {
     throw error;
   }
 
-  const memberData = await hasuraRequest(`
-    query GetMembership($organizationId: uuid!, $userId: uuid!) {
+  const memberData = await hasuraRequest(
+    `query GetMembership($organizationId: uuid!, $userId: uuid!) {
       org_members(
-        where: {
-          organization_id: { _eq: $organizationId }
-          user_id: { _eq: $userId }
-        }
+        where: { organization_id: { _eq: $organizationId }, user_id: { _eq: $userId } }
         limit: 1
-      ) {
-        user_id
-        role
-      }
-    }
-  `, { organizationId: workflow.organization_id, userId });
+      ) { user_id role }
+    }`,
+    { organizationId: workflow.organization_id, userId },
+  );
 
   const member = memberData.org_members?.[0];
   if (!member) {
@@ -46,9 +38,5 @@ export async function getWorkflowAuthorization(workflowId, userId) {
     throw error;
   }
 
-  return {
-    workflow,
-    organizationId: workflow.organization_id,
-    role: member.role,
-  };
+  return { workflow, organizationId: workflow.organization_id, role: member.role };
 }

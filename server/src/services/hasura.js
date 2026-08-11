@@ -1,10 +1,14 @@
-const HASURA_URL = process.env.HASURA_GRAPHQL_URL;
+const HASURA_URL = process.env.HASURA_GRAPHQL_URL || process.env.HASURA_GRAPHQL_ENDPOINT;
 const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET;
 
-if (!HASURA_URL) throw new Error("HASURA_GRAPHQL_URL is not configured");
-if (!HASURA_ADMIN_SECRET) throw new Error("HASURA_ADMIN_SECRET is not configured");
+function assertConfig() {
+  if (!HASURA_URL) throw new Error("HASURA_GRAPHQL_URL is not configured");
+  if (!HASURA_ADMIN_SECRET) throw new Error("HASURA_ADMIN_SECRET is not configured");
+}
 
 export async function hasuraRequest(query, variables = {}) {
+  assertConfig();
+
   const response = await fetch(HASURA_URL, {
     method: "POST",
     headers: {
@@ -14,10 +18,20 @@ export async function hasuraRequest(query, variables = {}) {
     body: JSON.stringify({ query, variables }),
   });
 
-  const result = await response.json();
-  if (!response.ok || result.errors) {
-    console.error("Hasura error:", result.errors);
-    throw new Error(result.errors?.[0]?.message || "Hasura request failed");
+  const text = await response.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Error(`Hasura returned non-JSON response (${response.status})`);
   }
+
+  if (!response.ok || result.errors?.length) {
+    const message = result.errors?.map((item) => item.message).join("; ") || `Hasura request failed (${response.status})`;
+    const error = new Error(message);
+    error.code = "HASURA_REQUEST_FAILED";
+    throw error;
+  }
+
   return result.data;
 }
