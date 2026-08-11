@@ -4,110 +4,64 @@ import Dashboard from "./pages/Dashboard";
 
 export default function App() {
   const { user, isAuthenticated, loading, signIn } = useAuth();
-
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState("owner.a@acme.example");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (loading) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <p className="muted">Loading…</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="loading-screen"><div className="card loading-card">Loading FlowForge…</div></div>;
+  if (isAuthenticated && user) return <Dashboard />;
 
-  if (isAuthenticated && user) {
-    return <Dashboard />;
-  }
-
-  const submit = async (event) => {
+  async function submit(event) {
     event.preventDefault();
-
-    setBusy(true);
-    setError("");
-
+    if (!email.trim() || !password) return setError("Email and password are required.");
+    setBusy(true); setError("");
     try {
       const result = await signIn(email.trim(), password);
+      if (result.error) setError(result.error.message || "Invalid email or password.");
+    } catch (e) {
+      setError(e.message || "Unable to sign in.");
+    } finally { setBusy(false); }
+  }
 
-      if (result.error) {
-        setError(
-          "Invalid email or password. Please check your credentials. Test credentials are available in the README."
-        );
-        return;
-      }
-    } catch (err) {
-      setError(
-        `Invalid email or password. Please check your credentials.
-         **Test credentials are available in the README.**`
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="auth-screen">
-      <div className="auth-card">
-        <p className="eyebrow">FLOWFORGE AI</p>
-
-        <h1>AI Agent Workflow Builder</h1>
-
-        <p className="muted">
-          Sign in to manage organization-scoped workflows.
-        </p>
-
-        <form onSubmit={submit}>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value);
-                if (error) setError("");
-              }}
-              placeholder="Enter your email"
-              autoComplete="email"
-              required
-              disabled={busy}
-            />
-          </label>
-
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                if (error) setError("");
-              }}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              required
-              disabled={busy}
-            />
-          </label>
-
-          {error && (
-            <div className="alert" role="alert">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="primary full"
-            disabled={busy}
-          >
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+  return
+  <div className="auth-page">
+    <div className="auth-card card">
+      <div className="brand auth-brand">
+        <div className="brand-mark">F</div>
+        <div>
+          <strong>FlowForge AI</strong>
+          <span>Assessment workflow control plane</span>
+        </div>
+      </div>
+      <p className="eyebrow">SECURE SIGN IN</p>
+      <h1>Run AI workflows with durable state.</h1>
+      <p className="muted">Nhost handles authentication while Hasura enforces organization-scoped data access.
+      </p>
+      <form onSubmit={submit}>
+        <label>
+          Email
+          <input autoComplete="email" value={email}
+            onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+        </label>
+        <label>Password
+          <input type="password" autoComplete="current-password"
+            value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" />
+        </label>
+        {error &&
+          <div className="alert">{error}
+          </div>}
+        <button className="primary auth-submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+      <div className="auth-note">
+        <strong>Assessment accounts</strong>
+        <span>Owner A · owner.a@acme.example</span>
+        <span>Editor A · editor.a@acme.example</span>
+        <span>Viewer A · viewer.a@acme.example</span>
+        <span>Owner B · owner.b@beta.example</span>
+        <small>Passwords are intentionally not committed to the repository.</small>
       </div>
     </div>
-  );
+  </div>;
 }
