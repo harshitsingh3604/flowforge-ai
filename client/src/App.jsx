@@ -52,15 +52,6 @@ export default function App() {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <div className="auth-logo-container">
-          <img
-            src="/src/assets/hero.png"
-            alt="FlowForge AI"
-            className="auth-logo"
-            height={174}
-            width={174}
-          />
-        </div>
         <p className="eyebrow">FLOWFORGE AI</p>
 
         <h1>AI Agent Workflow Builder</h1>
