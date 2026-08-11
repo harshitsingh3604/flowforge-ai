@@ -16,7 +16,7 @@ export async function executeLlmCall({
   input,
   context
 }) {
-  const ai = getGemini();
+  const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
   const config = step.config || {};
 

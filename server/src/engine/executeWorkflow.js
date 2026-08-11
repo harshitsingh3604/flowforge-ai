@@ -184,7 +184,7 @@ export async function executeWorkflow({
           role !== "owner"
         ) {
           const error = new Error(
-            `${step.type} requires owner permission`
+            `Owner permissions required`
           );
 
           error.code = "STEP_FORBIDDEN";
