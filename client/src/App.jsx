@@ -31,13 +31,10 @@ export default function App() {
         <div className="brand-mark">F</div>
         <div>
           <strong>FlowForge AI</strong>
-          <span>Assessment workflow control plane</span>
         </div>
       </div>
       <p className="eyebrow">SECURE SIGN IN</p>
       <h1>Run AI workflows with durable state.</h1>
-      <p className="muted">Nhost handles authentication while Hasura enforces organization-scoped data access.
-      </p>
       <form onSubmit={submit}>
         <label>
           Email
@@ -55,7 +52,7 @@ export default function App() {
         </button>
       </form>
       <div className="auth-note">
-        <strong>Assessment accounts</strong>
+        <strong>Test accounts</strong>
         <span>Owner A · owner.a@acme.example</span>
         <span>Editor A · editor.a@acme.example</span>
         <span>Viewer A · viewer.a@acme.example</span>
