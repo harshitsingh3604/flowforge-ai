@@ -49,18 +49,16 @@ async function loadSteps(workflowId) {
 async function createRun({ workflowId, triggerType, userId }) {
   const data = await hasuraRequest(
     `mutation CreateWorkflowRun(
-      $workflowId: uuid!
-      $triggerType: String!
-      $createdBy: uuid
-      $createdAt: timestamptz!
-      $startedAt: timestamptz!
-    ) {
-      insert_workflow_runs_one(object: {
+          $workflowId: uuid!
+          $triggerType: String!
+          $createdBy: uuid
+          $startedAt: timestamptz!
+        ) {
+        insert_workflow_runs_one(object: {
         workflow_id: $workflowId
         trigger_type: $triggerType
         status: "queued"
         created_by: $createdBy
-        created_at: $createdAt
         started_at: $startedAt
       }) { id workflow_id status trigger_type created_by started_at }
     }`,
