@@ -60,7 +60,7 @@ export default function App() {
         <span>Editor A · editor.a@acme.example</span>
         <span>Viewer A · viewer.a@acme.example</span>
         <span>Owner B · owner.b@beta.example</span>
-        <small>Passwords are intentionally not committed to the repository.</small>
+        <span>Password is provided in the assessment additional notes.</span>
       </div>
     </div>
   </div>

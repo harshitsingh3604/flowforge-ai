@@ -1,40 +1,24 @@
 # FlowForge AI
 
-FlowForge AI is a small, assessment-focused AI workflow orchestration platform built around **React, Nhost, Hasura, PostgreSQL, and Node.js**.
+FlowForge AI is an assessment-focused, multi-tenant AI workflow orchestration platform built with **React, Vite, Nhost, Hasura, PostgreSQL, Node.js, Express, and Google Gemini**.
 
-It demonstrates a multi-tenant workflow control plane where organization members can create, view, execute, and approve workflows according to their role.
+It demonstrates a workflow control plane in which authenticated organization members can create, configure, execute, monitor, and approve workflows according to their role.
 
-The implementation intentionally keeps the product scope small while demonstrating the important production-style concepts required by the assessment:
+The project focuses on durable execution and authorization rather than building a large visual workflow editor.
 
-- Nhost authentication
-- Organization-scoped multi-tenancy
-- Owner / Editor / Viewer authorization
-- Hasura GraphQL permissions
-- Workflow execution through a Node.js engine
-- LLM execution with Google Gemini
-- HTTP requests
-- Conditional branching
-- Persistent approval gates
-- Workflow resume after approval
-- Database writes
-- Notification events
-- Retry handling
-- Organization quotas
-- Manual and webhook workflow triggers
-- GraphQL step-run subscriptions for live progress
+## Live Application
 
----
-
-## Live Application:
 https://flowforge-ai-murex.vercel.app/
 
-## GitHub:
+## GitHub
+
 https://github.com/harshitsingh3604/flowforge-ai
+
 ---
 
-## 1. Product Overview
+## 1. What FlowForge AI Does
 
-A workflow consists of ordered steps.
+A workflow is a sequence of executable steps.
 
 Example:
 
@@ -50,85 +34,75 @@ Approval Gate
 DB Write
 ```
 
-When an approval gate is reached, the workflow is persisted as paused rather than keeping an HTTP request open.
+The workflow engine persists execution state in PostgreSQL through Hasura.
+
+When an approval gate is reached, execution is **paused durably**:
 
 ```text
 workflow_run.status = paused
 step_run.status     = paused
 ```
 
-An authorized Owner/Editor can then approve the step:
+The original HTTP request is not kept open.
+
+An authorized organization member can approve the paused step. The approval is persisted and the same workflow run is resumed from the next step.
 
 ```text
-approveStep()
+Approval Gate
+      ↓
+Persist PAUSED state
+      ↓
+approveStep
       ↓
 approval recorded
       ↓
-workflow resumed
+resume existing workflow run
       ↓
-remaining steps execute
+remaining steps
       ↓
 COMPLETED
 ```
-
-This makes the approval flow persistent and suitable for asynchronous execution.
 
 ---
 
 ## 2. Core Features
 
-### Authentication
-
-Authentication is handled by Nhost Auth.
-
-The frontend uses the Nhost JavaScript SDK and maintains the authenticated session through a small React `AuthProvider`.
-
-Supported operations:
-
-- Sign in
-- Sign out
-- Current authenticated user
-- Session persistence
-
-The login UI displays a user-friendly error for invalid credentials.
-
-### Multi-Tenancy
-
-Every workflow belongs to an organization:
-
-```text
-organization
-    ↓
-workflow
-    ↓
-workflow steps
-    ↓
-workflow runs
-    ↓
-step runs
-```
-
-Organization membership is represented by:
-
-```text
-org_members
-```
-
-with the roles:
-
-```text
-owner
-editor
-viewer
-```
-
-Hasura permissions scope organization data using the authenticated Nhost user ID.
-
-The application therefore does not rely only on frontend checks for tenant isolation.
+- Nhost authentication
+- Organization-scoped multi-tenancy
+- Owner / Editor / Viewer roles
+- Hasura GraphQL authorization
+- Backend authorization checks
+- Workflow CRUD
+- Ordered workflow steps
+- LLM execution with Google Gemini
+- HTTP request steps
+- Conditional branching
+- Human approval gates
+- Durable pause/resume
+- Database result persistence
+- Notification events
+- Retry handling
+- Organization quota enforcement
+- Manual workflow execution
+- Webhook workflow execution
+- Scheduled workflow execution
+- Database-event workflow execution
+- GraphQL subscriptions for live step-run progress
+- Cross-organization data isolation
 
 ---
 
 ## 3. Role Model
+
+FlowForge uses three organization roles:
+
+- **Owner**
+- **Editor**
+- **Viewer**
+
+Authorization is enforced by Hasura permissions and backend checks. The frontend is not the security boundary.
+
+### Capability Matrix
 
 | Capability | Owner | Editor | Viewer |
 |---|:---:|:---:|:---:|
@@ -136,40 +110,56 @@ The application therefore does not rely only on frontend checks for tenant isola
 | View workflow steps | Yes | Yes | Yes |
 | Create workflows | Yes | Yes | No |
 | Edit normal workflow steps | Yes | Yes | No |
-| Create/configure `db_write` | Yes | No | No |
-| Create/configure `notify` | Yes | No | No |
+| Configure `db_write` steps | Yes | No | No |
+| Configure `notify` steps | Yes | No | No |
+| Configure webhook triggers | Yes | No | No |
+| Configure normal triggers | Yes | Yes | No |
 | Run workflows | Yes | Yes | No |
-| Approve workflow steps | Yes | Yes | No |
+| Approve paused workflow steps | Yes | Yes | No |
 | Manage organization membership | Yes | No | No |
 | Access another organization | No | No | No |
 
-The final authorization decision is enforced through the backend/Hasura authorization model, not only by hiding UI buttons.
+### Important authorization detail
+
+Editors can build and modify normal workflow functionality, but they cannot configure the sensitive workflow capabilities:
+
+```text
+db_write
+notify
+webhook trigger
+```
+
+An existing workflow that contains an Owner-configured sensitive step can still be executed by an authorized Owner/Editor; the restriction is primarily on configuring those sensitive capabilities.
+
+Viewers have read-only access.
+
+Organization isolation is enforced using the authenticated Nhost user identity and organization membership.
 
 ---
 
 ## 4. Workflow Step Types
 
-The workflow engine supports six step types.
+The execution engine supports six step types.
 
 ### `llm_call`
 
-Calls Google Gemini and stores the generated result in the step run.
+Calls Google Gemini and stores the generated output in the step run.
 
 ```text
 Input
   ↓
-Gemini
+Google Gemini
   ↓
 Output
 ```
 
-Retry support is available for LLM failures.
+LLM failures use the project's retry mechanism.
 
 ### `http_request`
 
-Executes a real HTTP request.
+Executes an external HTTP request.
 
-Supported configuration includes:
+Example configuration:
 
 ```json
 {
@@ -180,16 +170,16 @@ Supported configuration includes:
 }
 ```
 
-Retry support is available for failed requests.
+HTTP failures use the project's retry mechanism.
 
 ### `conditional_branch`
 
-Evaluates workflow output and chooses the next position.
+Evaluates workflow output and chooses the next workflow position.
 
-The demo workflow uses:
+The demo workflow checks whether the previous LLM output contains:
 
 ```text
-Does the previous LLM output contain "APPROVE"?
+APPROVE
 ```
 
 Example:
@@ -201,26 +191,24 @@ FALSE → alternate path
 
 ### `approval_gate`
 
-Pauses workflow execution.
-
-When reached:
+Pauses execution and persists the paused state.
 
 ```text
-step_run.status = paused
+step_run.status     = paused
 workflow_run.status = paused
 ```
 
-The engine returns control without keeping the original request open.
+The original request is released. Approval later resumes the existing workflow run.
 
 ### `db_write`
 
-Stores workflow output in:
+Persists workflow output into:
 
 ```text
 workflow_results
 ```
 
-This step is restricted to Owner-level workflow configuration/execution according to the project's authorization model.
+Configuration of this step is restricted to Owners.
 
 ### `notify`
 
@@ -230,13 +218,44 @@ Creates a notification event in:
 notification_events
 ```
 
-The notification event can then be processed through a Hasura Event Trigger.
+The notification event can be delivered to the backend through a Hasura Event Trigger.
+
+Configuration of this step is restricted to Owners.
 
 ---
 
-## 5. Workflow Run Lifecycle
+## 5. Workflow Triggers
 
-Workflow runs use the following statuses:
+FlowForge supports four trigger types:
+
+```text
+manual
+webhook
+scheduled
+database_event
+```
+
+### Manual
+
+The authenticated user starts a workflow through the dashboard.
+
+### Webhook
+
+An external system starts a workflow through a signed webhook request.
+
+### Scheduled
+
+The backend scheduler polls enabled scheduled triggers and starts workflows according to their configured interval.
+
+### Database Event
+
+A Hasura Event Trigger can call the backend when a configured database operation occurs. The backend matches the event against enabled `database_event` workflow triggers and starts the matching workflows.
+
+---
+
+## 6. Workflow Run Lifecycle
+
+Workflow runs use these statuses:
 
 ```text
 queued
@@ -247,7 +266,7 @@ failed
 cancelled
 ```
 
-A normal execution looks like:
+Normal execution:
 
 ```text
 queued
@@ -257,7 +276,7 @@ running
 completed
 ```
 
-An approval workflow looks like:
+Approval execution:
 
 ```text
 queued
@@ -273,7 +292,7 @@ running
 completed
 ```
 
-If an unrecoverable error occurs:
+Failure:
 
 ```text
 running
@@ -281,46 +300,75 @@ running
 failed
 ```
 
+Approval resume uses the existing persisted workflow run rather than creating a second run.
+
 ---
 
-## 6. Architecture
+## 7. Architecture
 
 ```text
                          ┌──────────────────────┐
                          │      React UI        │
-                         │       Vite           │
+                         │        Vite          │
                          └──────────┬───────────┘
                                     │
                               Nhost Auth
                                     │
-                              GraphQL + JWT
+                             GraphQL / WS
                                     │
                          ┌──────────▼───────────┐
                          │       Hasura         │
                          │ GraphQL + Permissions│
+                         │ Actions + Events     │
                          └───────┬───────┬──────┘
                                  │       │
-                         PostgreSQL      │ Actions
-                                         │
-                                ┌────────▼─────────┐
-                                │ Node.js / Express │
-                                │ Workflow Engine   │
-                                └────────┬──────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-                    ▼                    ▼                    ▼
-                  Gemini             HTTP APIs          PostgreSQL
-                    │                    │                    │
-                    └────────────────────┼────────────────────┘
-                                         │
-                                         ▼
-                                  Approval / Resume
+                            PostgreSQL   │ Actions
+                                        │
+                               ┌────────▼─────────┐
+                               │ Node.js / Express │
+                               │ Workflow Engine   │
+                               └────────┬──────────┘
+                                        │
+                  ┌─────────────────────┼─────────────────────┐
+                  │                     │                     │
+                  ▼                     ▼                     ▼
+              Google Gemini        External HTTP        PostgreSQL
+                  │                     │                     │
+                  └─────────────────────┼─────────────────────┘
+                                        │
+                                        ▼
+                                 Pause / Resume
+```
+
+### Request and execution flow
+
+```text
+React
+  ↓
+Nhost authentication
+  ↓
+Hasura GraphQL / Action
+  ↓
+Node.js backend
+  ↓
+Authorization
+  ↓
+Quota check
+  ↓
+Workflow run
+  ↓
+Step execution
+  ↓
+Persist step state
+  ↓
+Hasura subscription
+  ↓
+React live progress
 ```
 
 ---
 
-## 7. Project Structure
+## 8. Project Structure
 
 ```text
 flowforge-ai/
@@ -333,32 +381,28 @@ flowforge-ai/
 │   │   │   ├── graphql/
 │   │   │   │   └── api.js
 │   │   │   └── nhost.js
-│   │   │
 │   │   ├── pages/
 │   │   │   └── Dashboard.jsx
-│   │   │
 │   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css
-│   │
+│   │   ├── App.css
+│   │   ├── index.css
+│   │   └── main.jsx
 │   └── package.json
 │
 ├── server/
 │   ├── src/
 │   │   ├── actions/
 │   │   │   ├── approveStep.js
-│   │   │   └── triggerWorkflowRun.js
-│   │   │
+│   │   │   ├── triggerWorkflowRun.js
+│   │   │   └── triggerWorkflowWebhook.js
 │   │   ├── engine/
 │   │   │   ├── executeStep.js
 │   │   │   └── executeWorkflow.js
-│   │   │
 │   │   ├── services/
 │   │   │   ├── authorization.js
 │   │   │   ├── hasura.js
 │   │   │   ├── quota.js
 │   │   │   └── retry.js
-│   │   │
 │   │   ├── steps/
 │   │   │   ├── approvalGate.js
 │   │   │   ├── conditionalBranch.js
@@ -366,22 +410,27 @@ flowforge-ai/
 │   │   │   ├── httpRequest.js
 │   │   │   ├── llmCall.js
 │   │   │   └── notify.js
-│   │   │
+│   │   ├── triggers/
+│   │   │   └── scheduler.js
 │   │   ├── webhooks/
+│   │   │   ├── databaseEvent.js
 │   │   │   ├── notificationEvent.js
 │   │   │   └── workflowWebhook.js
-│   │   │
 │   │   └── server.js
-│   │
 │   └── package.json
 │
 ├── hasura/
 │   ├── metadata/
+│   │   └── metadata.json
 │   └── migrations/
 │       └── default/
 │           └── 001_initial_schema/
 │               ├── up.sql
 │               └── down.sql
+│
+├── docs/
+│   ├── planning.md
+│   └── future-improvements.md
 │
 ├── .env.example
 ├── .gitignore
@@ -390,11 +439,11 @@ flowforge-ai/
 
 ---
 
-## 8. Database Schema
+## 9. Database Schema
 
-The project uses PostgreSQL through Nhost/Hasura.
+PostgreSQL is managed through Nhost/Hasura.
 
-### Organizations
+### `organizations`
 
 ```text
 organizations
@@ -407,7 +456,7 @@ organizations
 └── updated_at
 ```
 
-### Organization Members
+### `org_members`
 
 ```text
 org_members
@@ -418,13 +467,9 @@ org_members
 └── created_at
 ```
 
-Unique membership:
+Membership is unique per organization/user pair.
 
-```text
-UNIQUE(organization_id, user_id)
-```
-
-### Workflows
+### `workflows`
 
 ```text
 workflows
@@ -437,7 +482,7 @@ workflows
 └── updated_at
 ```
 
-### Workflow Steps
+### `workflow_steps`
 
 ```text
 workflow_steps
@@ -453,7 +498,7 @@ workflow_steps
 
 The `(workflow_id, position)` combination is unique.
 
-### Workflow Triggers
+### `workflow_triggers`
 
 ```text
 workflow_triggers
@@ -465,7 +510,7 @@ workflow_triggers
 └── created_at
 ```
 
-Supported trigger types:
+Supported types:
 
 ```text
 manual
@@ -474,7 +519,7 @@ scheduled
 database_event
 ```
 
-### Workflow Runs
+### `workflow_runs`
 
 ```text
 workflow_runs
@@ -489,7 +534,9 @@ workflow_runs
 └── created_at
 ```
 
-### Step Runs
+`created_at` represents creation of the workflow-run record. `started_at` represents execution start time.
+
+### `step_runs`
 
 ```text
 step_runs
@@ -508,9 +555,9 @@ step_runs
 └── created_at
 ```
 
-`step_runs` is the persistent execution history used by the live workflow progress UI.
+`step_runs` provides durable execution history for the live progress UI.
 
-### Workflow Results
+### `workflow_results`
 
 ```text
 workflow_results
@@ -522,7 +569,7 @@ workflow_results
 └── created_at
 ```
 
-### Notification Events
+### `notification_events`
 
 ```text
 notification_events
@@ -538,9 +585,19 @@ notification_events
 └── error
 ```
 
+### Monthly usage view
+
+The project also includes:
+
+```text
+organization_usage_this_month
+```
+
+This view exposes organization usage information used by the dashboard, including quota fields and completed workflow-run counts for the current month.
+
 ---
 
-## 9. Quota Handling
+## 10. Quota Handling
 
 Each organization has:
 
@@ -550,33 +607,33 @@ quota_used
 quota_period_start
 ```
 
-Before a workflow starts, the backend checks the organization's available quota.
+Before a new workflow run is created, the backend reads the organization's quota and performs an atomic conditional increment through Hasura.
 
-If the quota has been exhausted, execution is rejected with:
+Conceptually:
+
+```text
+quota_used < quota_limit
+        ↓
+increment quota_used
+        ↓
+allow workflow
+```
+
+If no quota remains:
 
 ```text
 QUOTA_EXCEEDED
 ```
 
-Completed runs increment usage.
+is returned and the workflow is not started.
 
-The dashboard displays the current organization usage.
+The dashboard displays organization usage.
 
 ---
 
-## 10. Retry Handling
+## 11. Retry Handling
 
-LLM and HTTP steps use a small retry mechanism.
-
-Current behavior:
-
-```text
-Attempt 1
-   ↓
-failure
-   ↓
-Attempt 2
-```
+LLM and HTTP steps use the retry service.
 
 The attempt count is persisted in:
 
@@ -584,140 +641,191 @@ The attempt count is persisted in:
 step_runs.attempt_count
 ```
 
-If all attempts fail:
+The execution pattern is:
+
+```text
+Attempt 1
+   ↓
+failure
+   ↓
+retry
+   ↓
+Attempt 2
+```
+
+If execution cannot recover:
 
 ```text
 step_run.status = failed
 workflow_run.status = failed
 ```
 
-The error is stored for debugging and workflow history.
+The error is persisted for workflow history and debugging.
 
 ---
 
-## 11. Approval Flow
+## 12. Durable Approval Flow
 
-Approval is implemented as a persistent state transition.
+Approval is implemented as a persistent state transition rather than a long-running HTTP request.
 
-### Before approval
+### Pause
+
+When `approval_gate` is reached:
 
 ```text
-workflow_run.status = paused
 step_run.status = paused
+workflow_run.status = paused
 ```
 
-The original request is not kept open.
+The backend returns control.
 
-### Approval request
+### Approve
+
+The `approveStep` action validates:
+
+1. Authentication
+2. Workflow existence
+3. Organization membership
+4. Required role
+5. Approval step type
+6. Paused state
+
+Then it records:
 
 ```text
-approveStep(step_run_id)
+approved_by
+approved_at
 ```
 
-The backend validates:
+and resumes the existing workflow run.
 
-1. User is authenticated.
-2. User belongs to the workflow's organization.
-3. User has the required role.
-4. The step is an approval gate.
-5. The step is currently paused.
-
-Then:
+### Resume
 
 ```text
-approved_by = current user
-approved_at = current timestamp
+paused workflow_run
+       ↓
+approveStep
+       ↓
+persist approval
+       ↓
+status = running
+       ↓
+continue from next step
 ```
 
-The workflow is resumed from the next step.
+This prevents duplicate workflow runs during approval.
 
 ---
 
-## 12. GraphQL Actions
+## 13. Hasura Actions
 
-Two Hasura Actions provide the main workflow commands.
+The repository metadata defines three Actions.
 
 ### `triggerWorkflowRun`
 
-Input:
+Arguments:
 
 ```text
-workflow_id: UUID
+workflow_id: UUID!
 ```
 
-Flow:
+Handler:
 
 ```text
-Hasura Action
-      ↓
+/actions/trigger-workflow-run
+```
+
+Purpose:
+
+```text
 authenticate
-      ↓
-organization authorization
-      ↓
-quota check
-      ↓
-create workflow_run
-      ↓
+   ↓
+authorize organization membership
+   ↓
+check quota
+   ↓
+create workflow run
+   ↓
 execute workflow
-```
-
-Output:
-
-```text
-success
-workflowRunId
-status
-message
 ```
 
 ### `approveStep`
 
-Input:
+Argument:
 
 ```text
-step_run_id: UUID
+step_run_id: UUID!
 ```
 
-Flow:
+Handler:
 
 ```text
-Hasura Action
-      ↓
+/actions/approve-step
+```
+
+Purpose:
+
+```text
 authenticate
-      ↓
-organization authorization
-      ↓
-role check
-      ↓
-approval-state check
-      ↓
-approve
-      ↓
+   ↓
+authorize organization membership
+   ↓
+validate approval state
+   ↓
+record approval
+   ↓
 resume workflow
 ```
 
-Output:
+### `triggerWorkflowWebhook`
+
+Arguments:
 
 ```text
-success
-workflowRunId
-status
-message
+workflow_id: UUID!
+secret: String!
+payload: String
 ```
+
+Handler:
+
+```text
+/actions/trigger-workflow-webhook
+```
+
+Purpose:
+
+```text
+receive signed webhook action
+       ↓
+find enabled webhook trigger
+       ↓
+validate trigger secret
+       ↓
+parse payload
+       ↓
+execute workflow
+```
+
+This Action is configured for the public role because the backend validates the configured webhook secret.
 
 ---
 
-## 13. Webhook Trigger
+## 14. Webhook Execution
 
-A workflow can also be started through a webhook.
+The server exposes two webhook-related workflow entry points.
 
-Endpoint:
+### Direct workflow webhook
 
 ```text
 POST /webhooks/workflow/:workflowId
 ```
 
-The webhook expects the configured webhook secret.
+Required header:
+
+```text
+x-webhook-secret: YOUR_SECRET
+```
 
 Example:
 
@@ -725,307 +833,168 @@ Example:
 curl -X POST \
   https://YOUR-BACKEND-URL/webhooks/workflow/WORKFLOW_ID \
   -H "Content-Type: application/json" \
-  -H "x-webhook-secret: demo-secret" \
+  -H "x-webhook-secret: YOUR_SECRET" \
   -d '{"customer":"Demo Customer","amount":5000}'
 ```
 
-The request starts a workflow run using:
+The workflow run is created with:
 
 ```text
 trigger_type = webhook
 ```
 
----
-
-## 14. Notification Event Trigger
-
-The backend exposes:
+### Hasura Action webhook
 
 ```text
-POST /events/notification
+POST /actions/trigger-workflow-webhook
 ```
 
-The `notify` workflow step creates a row in:
+The Action accepts:
+
+```text
+workflow_id
+secret
+payload
+```
+
+and performs the same secret validation before execution.
+
+---
+
+## 15. Scheduled Workflows
+
+The backend scheduler starts automatically unless:
+
+```env
+SCHEDULER_ENABLED=false
+```
+
+The polling interval is controlled by:
+
+```env
+SCHEDULER_POLL_MS=30000
+```
+
+The scheduler:
+
+1. Finds enabled `scheduled` triggers.
+2. Reads their configured interval.
+3. Checks `last_run_at`.
+4. Updates `last_run_at`.
+5. Starts the workflow when the interval has elapsed.
+
+The minimum polling interval enforced by the server is 15 seconds.
+
+---
+
+## 16. Database Event Workflows
+
+The server exposes:
+
+```text
+POST /events/database
+```
+
+A Hasura Event Trigger can call this endpoint.
+
+The handler:
+
+1. Validates the configured event secret when enabled.
+2. Reads the database event.
+3. Finds enabled `database_event` workflow triggers.
+4. Matches the source table and operation.
+5. Starts matching workflows.
+6. Prevents a workflow from recursively triggering itself from its own result row.
+
+The event secret is configured through:
+
+```env
+FLOWFORGE_EVENT_SECRET=
+```
+
+---
+
+## 17. Notification Events
+
+The `notify` step creates a row in:
 
 ```text
 notification_events
 ```
 
-A Hasura Event Trigger can listen for inserts on that table and call the notification webhook.
-
-Recommended production configuration:
+The server exposes:
 
 ```text
-notification_events INSERT
-        ↓
-Hasura Event Trigger
-        ↓
 POST /events/notification
-        ↓
-Node.js notification handler
+```
+
+A Hasura Event Trigger can listen for inserts and call this endpoint.
+
+Conceptually:
+
+```text
+notify step
+    ↓
+notification_events INSERT
+    ↓
+Hasura Event Trigger
+    ↓
+POST /events/notification
+    ↓
+Node.js handler
+```
+
+The event secret can be validated through:
+
+```env
+FLOWFORGE_EVENT_SECRET=
 ```
 
 ---
 
-## 15. Live Workflow Progress
+## 18. Live Workflow Progress
 
-The frontend uses a GraphQL WebSocket subscription for `step_runs`.
+The React client uses a GraphQL WebSocket subscription for `step_runs`.
 
-The subscription is scoped to the exact:
+The subscription is scoped to:
 
 ```text
 workflow_run_id
 ```
 
-This allows the UI to update as execution progresses:
+This allows the UI to react to persisted state changes without polling the entire dashboard.
+
+Example:
 
 ```text
 queued
   ↓
 running
   ↓
-completed
-```
-
-or:
-
-```text
-running
+step 1 completed
+  ↓
+step 2 running
   ↓
 paused
 ```
 
-without requiring a full page refresh.
-
----
-
-## 16. Technology Stack
-
-### Frontend
-
-- React 19
-- Vite
-- Nhost JavaScript SDK
-- GraphQL
-- Custom responsive CSS
-
-### Authentication
-
-- Nhost Auth
-
-### API / Authorization
-
-- Hasura GraphQL
-- Hasura permissions
-- Hasura Actions
-- Hasura Event Triggers
-
-### Backend
-
-- Node.js
-- Express
-- GraphQL requests
-- HTTP execution
-
-### Database
-
-- PostgreSQL through Nhost
-
-### AI
-
-- Google Gemini via `@google/genai`
-
-### Development
-
-- npm
-- Vite
-- Nodemon
-- Oxlint
-
----
-
-## 17. Environment Variables
-
-### Frontend
-
-Create:
+After approval:
 
 ```text
-client/.env
-```
-
-with:
-
-```env
-VITE_NHOST_SUBDOMAIN=YOUR_NHOST_SUBDOMAIN
-VITE_NHOST_REGION=YOUR_NHOST_REGION
-VITE_NHOST_GRAPHQL_URL=YOUR_NHOST_GRAPHQL_URL
-VITE_NHOST_GRAPHQL_WS_URL=YOUR_NHOST_GRAPHQL_WS_URL
-```
-
-The frontend must never contain:
-
-```text
-HASURA_ADMIN_SECRET
-```
-
-or any other server-side privileged secret.
-
-### Backend
-
-Create:
-
-```text
-server/.env
-```
-
-with:
-
-```env
-PORT=5000
-
-HASURA_GRAPHQL_URL=YOUR_HASURA_GRAPHQL_URL
-HASURA_ADMIN_SECRET=YOUR_HASURA_ADMIN_SECRET
-
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-```
-
-`HASURA_ADMIN_SECRET` must remain server-side only.
-
----
-
-## 18. Local Development
-
-### Prerequisites
-
-Install:
-
-- Node.js
-- npm
-- Git
-- An Nhost project
-- A configured Hasura/PostgreSQL database
-- A Gemini API key
-
-### Clone the repository
-
-```bash
-git clone YOUR_GITHUB_REPOSITORY_URL
-cd flowforge-ai
-```
-
-### Install frontend dependencies
-
-```bash
-cd client
-npm install
-```
-
-### Configure frontend environment
-
-Create:
-
-```text
-client/.env
-```
-
-and add the Nhost values described above.
-
-### Start frontend
-
-```bash
-npm run dev
-```
-
-The Vite development server normally runs at:
-
-```text
-http://localhost:5173
-```
-
-### Install backend dependencies
-
-Open another terminal:
-
-```bash
-cd server
-npm install
-```
-
-Create:
-
-```text
-server/.env
-```
-
-and configure the Hasura and Gemini credentials.
-
-### Start backend
-
-```bash
-npm run dev
-```
-
-The backend normally runs at:
-
-```text
-http://localhost:5000
-```
-
-Health check:
-
-```text
-GET /health
-```
-
-Expected response:
-
-```json
-{
-  "success": true,
-  "service": "flowforge-ai-server",
-  "status": "healthy"
-}
+paused
+  ↓
+running
+  ↓
+completed
 ```
 
 ---
 
-## 19. Nhost / Hasura Setup
+## 19. Demo Workflow
 
-The database migration is located at:
+The dashboard includes an Owner-only demo workflow creation flow.
 
-```text
-hasura/migrations/default/001_initial_schema/up.sql
-```
-
-The repository also contains Hasura metadata.
-
-After configuring the Nhost project:
-
-1. Configure PostgreSQL schema.
-2. Track the required tables/views in Hasura.
-3. Configure relationships.
-4. Configure Hasura permissions.
-5. Configure `triggerWorkflowRun`.
-6. Configure `approveStep`.
-7. Configure the notification Event Trigger.
-8. Make sure Action/Event Trigger URLs point to a publicly reachable backend in deployed environments.
-
-Do not point cloud Hasura Actions to:
-
-```text
-http://localhost:5000
-```
-
-For local development, use a secure public tunnel such as an ngrok HTTPS URL when Hasura Cloud needs to call your local server.
-
----
-
-## 20. Demo Workflow
-
-The dashboard provides an Owner-only `+ Demo` action.
-
-It creates the assessment demonstration workflow:
+The demo workflow contains:
 
 ```text
 1. Analyze Request
@@ -1050,149 +1019,287 @@ The demo HTTP step uses:
 https://jsonplaceholder.typicode.com/todos/1
 ```
 
-The conditional checks whether the LLM output contains:
+The conditional branch checks whether the LLM output contains:
 
 ```text
 APPROVE
 ```
 
----
-
-## 21. Recommended Evaluation Flow
-
-### Owner
-
-Sign in as an Owner and:
+This provides a compact demonstration of:
 
 ```text
-Create Demo Workflow
-        ↓
-Run
-        ↓
-LLM
-        ↓
+AI
+ ↓
 HTTP
-        ↓
-Conditional
-        ↓
-Approval
-        ↓
-PAUSED
-        ↓
-Approve
-        ↓
-DB Write
-        ↓
-COMPLETED
+ ↓
+Decision
+ ↓
+Human approval
+ ↓
+Persistence
 ```
-
-### Editor
-
-Sign in as an Editor and verify the permissions expected by the assessment.
-
-Editors can work with normal workflow functionality but cannot configure Owner-only sensitive steps such as `db_write` and `notify`.
-
-### Viewer
-
-Sign in as a Viewer.
-
-Expected:
-
-```text
-Read workflows       ✓
-Read steps           ✓
-Run workflow         ✗
-Approve              ✗
-Create/update        ✗
-```
-
-### Cross-Organization Test
-
-Use an Owner from another organization.
-
-For example:
-
-```text
-Organization A
-    Owner A
-
-Organization B
-    Owner B
-```
-
-Owner A must not be able to access Organization B workflow data.
 
 ---
 
-## 22. Demo Credentials
-
-The application uses Nhost Authentication.
-
-The recommended assessment accounts are:
-
-| Account | Email | Organization | Role |
-|---|---|---|---|
-| Owner A | `owner.a@acme.example` | Organization A | Owner |
-| Editor A | `editor.a@acme.example` | Organization A | Editor |
-| Viewer A | `viewer.a@acme.example` | Organization A | Viewer |
-| Owner B | `owner.b@beta.example` | Organization B | Owner |
-
-### Passwords
-
-Do not commit real passwords to a public Git repository.
-
-For an assessment submission, provide the passwords separately in the submission email or assessment portal unless the assessment explicitly permits credentials to be stored in the repository.
-
----
-
-## 23. Security Considerations
-
-The project uses several layers of authorization.
+## 20. Technology Stack
 
 ### Frontend
 
-The UI disables operations unavailable to the current role.
+- React 19
+- Vite 8
+- React Router
+- Nhost React
+- Nhost JavaScript SDK
+- Apollo Client
+- GraphQL
+- Tailwind CSS dependency
+- Custom CSS
 
-### Hasura
+### Authentication
 
-Hasura permissions enforce organization and role-based data access.
+- Nhost Auth
+
+### API / Authorization
+
+- Hasura GraphQL
+- Hasura permissions
+- Hasura Actions
+- Hasura Event Triggers
 
 ### Backend
 
-The workflow engine validates authentication, organization membership, roles, quota, and workflow state before execution.
+- Node.js
+- Express 5
+- `graphql-request`
+- Axios
+- CORS
+- dotenv
 
-### Secrets
+### AI
 
-Privileged credentials must remain server-side:
+- Google Gemini
+- `@google/genai`
+
+### Database
+
+- PostgreSQL through Nhost/Hasura
+
+### Development
+
+- npm
+- Nodemon
+- Vite
+- Oxlint
+
+---
+
+## 21. Environment Variables
+
+The repository provides:
+
+```text
+.env.example
+```
+
+### Frontend
+
+The current client uses the Nhost configuration required by the frontend.
+
+Example:
+
+```env
+VITE_NHOST_SUBDOMAIN=
+VITE_NHOST_REGION=
+```
+
+If your deployment uses explicit GraphQL endpoints, configure the corresponding client variables required by the current frontend configuration.
+
+### Backend
+
+```env
+PORT=5000
+
+HASURA_GRAPHQL_URL=
+HASURA_ADMIN_SECRET=
+
+GEMINI_API_KEY=
+
+CORS_ORIGINS=
+SCHEDULER_ENABLED=
+SCHEDULER_POLL_MS=
+
+FLOWFORGE_EVENT_SECRET=
+```
+
+Server-side secrets must never be exposed to the frontend.
+
+In particular:
 
 ```text
 HASURA_ADMIN_SECRET
 GEMINI_API_KEY
+FLOWFORGE_EVENT_SECRET
 ```
 
-Never expose them through:
+must remain server-side.
+
+---
+
+## 22. Local Development
+
+### Prerequisites
+
+Install:
+
+- Node.js
+- npm
+- Git
+- An Nhost project
+- PostgreSQL/Hasura through Nhost
+- Google Gemini API access
+
+### Clone
+
+```bash
+git clone https://github.com/harshitsingh3604/flowforge-ai.git
+cd flowforge-ai
+```
+
+### Frontend
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+The Vite development server normally runs at:
 
 ```text
-client/.env
-VITE_*
-GitHub
-browser code
+http://localhost:5173
+```
+
+### Backend
+
+Open another terminal:
+
+```bash
+cd server
+npm install
+npm run dev
+```
+
+The backend normally runs at:
+
+```text
+http://localhost:5000
+```
+
+Health check:
+
+```text
+GET /health
+```
+
+Expected response:
+
+```json
+{
+  "success": true,
+  "service": "flowforge-ai-server",
+  "status": "healthy",
+  "timestamp": "..."
+}
 ```
 
 ---
 
-## 24. Production Deployment
+## 23. Production Build
 
-The recommended deployment topology is:
+### Frontend
+
+```bash
+cd client
+npm install
+npm run build
+```
+
+Preview:
+
+```bash
+npm run preview
+```
+
+Lint:
+
+```bash
+npm run lint
+```
+
+### Backend
+
+```bash
+cd server
+npm install
+npm start
+```
+
+The server starts on:
+
+```env
+PORT=5000
+```
+
+or the port supplied by the deployment platform.
+
+---
+
+## 24. Hasura / Nhost Setup
+
+The repository contains:
+
+```text
+hasura/migrations/default/001_initial_schema/
+hasura/metadata/metadata.json
+```
+
+The initial database migration creates the application's core tables, constraints, indexes, and usage view.
+
+After configuring the Nhost project:
+
+1. Apply the database migration.
+2. Apply/import Hasura metadata.
+3. Verify relationships.
+4. Verify organization membership permissions.
+5. Verify workflow permissions.
+6. Verify step permissions.
+7. Verify trigger permissions.
+8. Configure the three Hasura Actions.
+9. Configure the notification Event Trigger.
+10. Configure database-event Event Trigger behavior if required.
+11. Ensure all cloud handlers point to the public backend URL.
+
+Do not configure cloud Hasura Actions to call:
+
+```text
+http://localhost:5000
+```
+
+For local development where cloud Hasura must call your local server, use a secure public HTTPS tunnel.
+
+---
+
+## 25. Deployment Architecture
+
+A typical deployment is:
 
 ```text
                     Internet
                        |
              +---------+---------+
              |                   |
-             v                   v
-        Vercel Frontend     Node Backend
-             |                   |
+             ▼                   ▼
+        Vercel Frontend     Node/Express Backend
              |                   |
              +---------+---------+
                        |
@@ -1205,6 +1312,8 @@ The recommended deployment topology is:
 
 ### Frontend
 
+Deploy the Vite client.
+
 Build:
 
 ```bash
@@ -1212,90 +1321,217 @@ cd client
 npm run build
 ```
 
-Deploy the generated Vite application to your preferred frontend platform.
-
-Configure:
-
-```env
-VITE_NHOST_SUBDOMAIN=
-VITE_NHOST_REGION=
-VITE_NHOST_GRAPHQL_URL=
-VITE_NHOST_GRAPHQL_WS_URL=
-```
-
 ### Backend
 
-Deploy the Node/Express server to a platform that provides a public HTTPS URL.
-
-Configure:
-
-```env
-PORT=
-HASURA_GRAPHQL_URL=
-HASURA_ADMIN_SECRET=
-GEMINI_API_KEY=
-```
+Deploy the Express server with a public HTTPS URL.
 
 ### Hasura Actions
 
-Update:
+The repository metadata currently points the Actions to the deployed Render backend:
 
 ```text
-triggerWorkflowRun
-approveStep
+https://flowforge-ai-nmnc.onrender.com/actions/approve-step
+https://flowforge-ai-nmnc.onrender.com/actions/trigger-workflow-run
+https://flowforge-ai-nmnc.onrender.com/actions/trigger-workflow-webhook
 ```
 
-to point to the deployed backend.
+If deploying elsewhere, update the Hasura Action handlers accordingly.
 
-For example:
+---
+
+## 26. Demo Accounts
+
+The assessment/demo setup uses:
+
+| Account | Email | Organization | Role |
+|---|---|---|---|
+| Owner A | `owner.a@acme.example` | Acme/Organization A | Owner |
+| Editor A | `editor.a@acme.example` | Acme/Organization A | Editor |
+| Viewer A | `viewer.a@acme.example` | Acme/Organization A | Viewer |
+| Owner B | `owner.b@beta.example` | Beta/Organization B | Owner |
+
+Do not commit real passwords to the repository.
+
+Provide passwords separately through the assessment submission channel when required.
+
+---
+
+## 27. Recommended Evaluation Flow
+
+### Owner Test
 
 ```text
-https://YOUR-BACKEND-DOMAIN/actions/trigger-workflow-run
-https://YOUR-BACKEND-DOMAIN/actions/approve-step
+Login as Owner
+      ↓
+Create demo workflow
+      ↓
+Run workflow
+      ↓
+LLM
+      ↓
+HTTP
+      ↓
+Conditional
+      ↓
+Approval Gate
+      ↓
+PAUSED
+      ↓
+Approve
+      ↓
+DB Write
+      ↓
+COMPLETED
 ```
 
-The notification Event Trigger should point to:
+### Editor Test
+
+Verify that an Editor can:
 
 ```text
-https://YOUR-BACKEND-DOMAIN/events/notification
+View workflows
+Create workflows
+Edit normal steps
+Configure normal triggers
+Run workflows
+Approve paused workflow steps
+```
+
+Verify that an Editor cannot configure:
+
+```text
+db_write
+notify
+webhook triggers
+```
+
+### Viewer Test
+
+Verify:
+
+```text
+View workflows       ✓
+View steps           ✓
+Run workflow         ✗
+Approve              ✗
+Create workflow      ✗
+Edit workflow        ✗
+```
+
+### Cross-Organization Test
+
+```text
+Organization A
+  Owner A
+
+Organization B
+  Owner B
+```
+
+Owner A must not be able to read or modify Organization B workflow data.
+
+---
+
+## 28. Security Model
+
+FlowForge uses multiple authorization layers.
+
+### Frontend
+
+The UI is role-aware and hides/disables operations that the current user cannot perform.
+
+### Hasura
+
+Hasura permissions enforce:
+
+- organization membership
+- role-based workflow access
+- workflow-step restrictions
+- workflow-trigger restrictions
+- organization-level access
+
+### Backend
+
+The backend validates:
+
+- authentication context
+- workflow existence
+- organization membership
+- role
+- workflow state
+- quota
+- approval state
+- webhook secrets
+
+### Secrets
+
+Never expose:
+
+```text
+HASURA_ADMIN_SECRET
+GEMINI_API_KEY
+FLOWFORGE_EVENT_SECRET
+```
+
+through:
+
+```text
+client code
+VITE_* variables
+GitHub
+browser storage
+public README files
 ```
 
 ---
 
-## 25. Production Verification Checklist
+## 29. Important API Endpoints
 
-Before submitting, verify:
+### Health
 
-- [ ] Login works from the deployed frontend.
-- [ ] Invalid credentials display a useful error.
-- [ ] Owner can create the demo workflow.
-- [ ] Owner can run the workflow.
-- [ ] LLM step executes.
-- [ ] HTTP step executes.
-- [ ] Conditional branch executes.
-- [ ] Approval gate changes the run to `paused`.
-- [ ] Approval resumes the existing run.
-- [ ] DB write completes.
-- [ ] Workflow reaches `completed`.
-- [ ] Retry count is persisted.
-- [ ] Quota enforcement works.
-- [ ] Webhook trigger starts a workflow.
-- [ ] Invalid webhook secret is rejected.
-- [ ] Notification Event Trigger is configured and reachable.
-- [ ] GraphQL step-run subscription updates the UI.
-- [ ] Viewer cannot run workflows.
-- [ ] Viewer cannot approve.
-- [ ] Editor permissions match the assessment.
-- [ ] Owner-only sensitive steps remain protected.
-- [ ] Organization A cannot access Organization B data.
-- [ ] No secrets are committed to Git.
-- [ ] Frontend production build succeeds.
-- [ ] Backend starts without configuration errors.
-- [ ] Hasura Actions do not point to localhost in production.
+```text
+GET /health
+```
+
+### Hasura Action: workflow run
+
+```text
+POST /actions/trigger-workflow-run
+```
+
+### Hasura Action: approval
+
+```text
+POST /actions/approve-step
+```
+
+### Hasura Action: webhook workflow
+
+```text
+POST /actions/trigger-workflow-webhook
+```
+
+### Direct workflow webhook
+
+```text
+POST /webhooks/workflow/:workflowId
+```
+
+### Notification Event
+
+```text
+POST /events/notification
+```
+
+### Database Event
+
+```text
+POST /events/database
+```
 
 ---
 
-## 26. Useful Commands
+## 30. Useful Commands
 
 ### Frontend
 
@@ -1303,23 +1539,8 @@ Before submitting, verify:
 cd client
 npm install
 npm run dev
-```
-
-Production build:
-
-```bash
 npm run build
-```
-
-Lint:
-
-```bash
 npm run lint
-```
-
-Preview production build:
-
-```bash
 npm run preview
 ```
 
@@ -1329,11 +1550,6 @@ npm run preview
 cd server
 npm install
 npm run dev
-```
-
-Production:
-
-```bash
 npm start
 ```
 
@@ -1342,15 +1558,60 @@ npm start
 ```bash
 git status
 git add .
-git commit -m "feat: finalize FlowForge workflow control plane"
+git commit -m "Update FlowForge"
 git push
 ```
 
 ---
 
-## 27. Assessment Highlights
+## 31. Production Verification Checklist
 
-FlowForge AI demonstrates the following engineering concepts:
+Before an assessment/demo deployment, verify:
+
+- [ ] Login works.
+- [ ] Logout works.
+- [ ] Invalid credentials show a useful error.
+- [ ] Owner can create a workflow.
+- [ ] Editor can create a workflow.
+- [ ] Viewer cannot create a workflow.
+- [ ] Owner can configure `db_write`.
+- [ ] Editor cannot configure `db_write`.
+- [ ] Owner can configure `notify`.
+- [ ] Editor cannot configure `notify`.
+- [ ] Owner can configure webhook triggers.
+- [ ] Editor cannot configure webhook triggers.
+- [ ] Owner can run workflows.
+- [ ] Editor can run workflows.
+- [ ] Viewer cannot run workflows.
+- [ ] Owner can approve paused workflow steps.
+- [ ] Editor can approve paused workflow steps.
+- [ ] Viewer cannot approve.
+- [ ] LLM execution works.
+- [ ] HTTP execution works.
+- [ ] Conditional branching works.
+- [ ] Approval gate persists `paused`.
+- [ ] Approval resumes the same workflow run.
+- [ ] DB write persists workflow results.
+- [ ] Notification events are created.
+- [ ] Retry count is persisted.
+- [ ] Quota exhaustion returns `QUOTA_EXCEEDED`.
+- [ ] Manual trigger works.
+- [ ] Webhook trigger validates its secret.
+- [ ] Scheduled trigger works when enabled.
+- [ ] Database-event trigger validates its event secret.
+- [ ] Step-run subscription updates the UI.
+- [ ] Organization A cannot access Organization B.
+- [ ] No privileged secrets are committed.
+- [ ] Frontend production build succeeds.
+- [ ] Backend health endpoint responds successfully.
+- [ ] Hasura Action URLs are publicly reachable in production.
+- [ ] Event Trigger URLs are publicly reachable in production.
+
+---
+
+## 32. Assessment Highlights
+
+FlowForge demonstrates:
 
 ### Multi-tenancy
 
@@ -1362,6 +1623,8 @@ Organization Membership
 Organization
  ↓
 Workflow
+ ↓
+Workflow Run
 ```
 
 ### Role-based authorization
@@ -1372,7 +1635,7 @@ Editor
 Viewer
 ```
 
-### Workflow orchestration
+### AI/API orchestration
 
 ```text
 LLM
@@ -1380,73 +1643,107 @@ LLM
 HTTP
  ↓
 Conditional
- ↓
-Approval
- ↓
-DB
 ```
 
-### Durable human-in-the-loop execution
+### Human-in-the-loop execution
 
 ```text
+Workflow
+   ↓
 Approval Gate
-     ↓
-Persist PAUSED state
-     ↓
-Wait
-     ↓
+   ↓
+Persist PAUSED
+   ↓
 Approve
-     ↓
+   ↓
 Resume
+   ↓
+Complete
 ```
 
-### Event-driven architecture
+### Event-driven execution
 
 ```text
-notification_events
-       ↓
-Hasura Event Trigger
-       ↓
-Node webhook
+Database Event / Notification Event
+              ↓
+        Hasura Event Trigger
+              ↓
+        Node.js webhook
+              ↓
+        Workflow engine
 ```
 
 ### Live execution monitoring
 
 ```text
 PostgreSQL
-     ↓
-Hasura Subscription
-     ↓
-React UI
+    ↓
+Hasura
+    ↓
+GraphQL WebSocket
+    ↓
+React
 ```
 
 ---
 
-## 28. Project Scope
+## 33. Project Scope
 
-FlowForge AI is intentionally implemented as a focused assessment project rather than a full commercial workflow platform.
+FlowForge AI is intentionally scoped as a focused workflow-control-plane assessment project.
 
-The priority is demonstrating:
+The implementation prioritizes:
 
-- Correct authorization boundaries
-- Organization isolation
-- Durable workflow execution
+- organization isolation
+- role-based authorization
+- durable workflow execution
 - AI/API orchestration
-- Human approval
-- Persistent execution state
-- Retry handling
-- Quota enforcement
-- Event-driven notification handling
-- Live execution visibility
+- human approval
+- persistent workflow state
+- retries
+- quotas
+- webhook execution
+- scheduled execution
+- database-event execution
+- notification events
+- live execution visibility
 
-The project does not attempt to implement a large visual workflow editor, enterprise billing system, complex scheduling platform, or production notification provider integration.
+It does not attempt to be a complete commercial automation platform with a large visual workflow canvas, enterprise billing, complex scheduling, or a full external notification-provider ecosystem.
 
-This keeps the implementation small enough to understand and evaluate while demonstrating the required backend and frontend engineering concepts.
+The goal is to demonstrate the core engineering architecture clearly and make the authorization and execution behavior easy to evaluate.
 
 ---
 
-## 29. License
+## 34. Future Improvements
 
-This project was created as a software engineering assessment project.
+Potential future improvements include:
 
-Unless otherwise specified by the repository owner, the source code is intended for assessment and demonstration purposes.
+- More workflow step types
+- More sophisticated scheduling
+- Background worker queues
+- Distributed execution
+- Idempotency keys
+- Stronger webhook signing
+- External notification providers
+- Workflow versioning
+- Execution cancellation controls
+- Better audit logging
+- Automated integration tests
+- More granular permissions
+- A visual workflow canvas
+- Production-grade observability
+
+See:
+
+```text
+docs/future-improvements.md
+```
+
+for additional project ideas.
+
+---
+
+## 35. License / Assessment Use
+
+FlowForge AI was created as a software engineering assessment project.
+
+Unless otherwise specified by the repository owner, the repository is intended for assessment, demonstration, and evaluation purposes.

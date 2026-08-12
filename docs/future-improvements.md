@@ -1,8 +1,28 @@
 # FlowForge AI — Future Improvements
 
-This document describes improvements that can be added after the assessment version of FlowForge AI.
+This document describes potential product and engineering improvements for FlowForge AI after the current assessment implementation.
 
-The current project intentionally focuses on the core assessment requirements. The items below are not required for the current submission and should be treated as future product and engineering work.
+The current project already demonstrates the core workflow-control-plane architecture:
+
+```text
+Authentication
+      ↓
+Multi-tenancy
+      ↓
+Role-based Authorization
+      ↓
+Workflow Definition
+      ↓
+Workflow Execution
+      ↓
+Human Approval
+      ↓
+Persistent Results
+      ↓
+Live Monitoring
+```
+
+The improvements below are intentionally separated from the assessment scope. They are future product/engineering work rather than requirements for the current submission.
 
 ---
 
@@ -10,7 +30,7 @@ The current project intentionally focuses on the core assessment requirements. T
 
 ### Current State
 
-The current application creates the assessment demo workflow programmatically from the dashboard.
+The current dashboard provides workflow configuration and an assessment-oriented workflow experience. Workflow steps are persisted in `workflow_steps` and executed by the backend engine.
 
 ### Future Improvement
 
@@ -19,19 +39,30 @@ Build a visual drag-and-drop workflow editor.
 Possible experience:
 
 ```text
-Canvas
-  │
-  ├── LLM Call
-  │
-  ├── HTTP Request
-  │
-  ├── Conditional Branch
-  │       ├── TRUE
-  │       └── FALSE
-  │
-  ├── Approval Gate
-  │
-  └── DB Write
+                    Workflow Canvas
+
+        ┌───────────────┐
+        │   LLM Call    │
+        └───────┬───────┘
+                ↓
+        ┌───────────────┐
+        │ HTTP Request  │
+        └───────┬───────┘
+                ↓
+        ┌───────────────┐
+        │   Condition   │
+        └───────┬───────┘
+             ┌──┴──┐
+          TRUE    FALSE
+            ↓        ↓
+       ┌────────┐  ┌────────┐
+       │Approval│  │ Next   │
+       └───┬────┘  └───┬────┘
+           └──────┬─────┘
+                  ↓
+             ┌────────┐
+             │DB Write│
+             └────────┘
 ```
 
 Users could:
@@ -40,22 +71,22 @@ Users could:
 - Delete steps.
 - Reorder steps.
 - Connect branches.
-- Edit configuration.
-- Validate workflows before publishing.
+- Configure steps.
+- Validate workflows.
+- Preview execution paths.
+- Publish workflows.
 
 ---
 
-## 2. Step Configuration UI
+## 2. Rich Step Configuration UI
 
 ### Current State
 
-Step configuration is stored in JSONB and the demo workflow defines configuration programmatically.
+Step configuration is stored in JSONB and interpreted by the execution engine.
 
 ### Future Improvement
 
-Add forms for each step type.
-
-For example:
+Provide dedicated configuration forms for every step type.
 
 ### LLM
 
@@ -64,6 +95,7 @@ Model
 Prompt
 Temperature
 Maximum tokens
+Structured output schema
 ```
 
 ### HTTP
@@ -72,18 +104,29 @@ Maximum tokens
 Method
 URL
 Headers
+Query parameters
 Body
 Timeout
+Authentication
 ```
 
 ### Conditional
 
 ```text
-Source step
+Source
 Operator
 Comparison value
 True branch
 False branch
+```
+
+### Approval
+
+```text
+Approvers
+Approval policy
+Deadline
+Escalation
 ```
 
 ### DB Write
@@ -91,6 +134,7 @@ False branch
 ```text
 Target
 Data mapping
+Write mode
 ```
 
 ### Notify
@@ -99,9 +143,10 @@ Data mapping
 Channel
 Recipient
 Message
+Provider
 ```
 
-This would allow users to create workflows without editing source code.
+This would allow workflows to be configured without requiring users to understand the underlying JSON configuration.
 
 ---
 
@@ -109,7 +154,7 @@ This would allow users to create workflows without editing source code.
 
 ### Current State
 
-Workflows currently use the active workflow definition.
+Workflow execution is based on the active workflow definition.
 
 ### Future Improvement
 
@@ -117,27 +162,25 @@ Introduce immutable workflow versions:
 
 ```text
 Workflow
-   │
    ├── Version 1
    ├── Version 2
    └── Version 3
 ```
 
-Each workflow run would reference the exact version that was executed.
+Each `workflow_run` should reference the exact version that was executed.
 
 Benefits:
 
 - Reproducible executions.
-- Safer workflow updates.
+- Safe workflow updates.
 - Rollback.
 - Auditability.
 - Easier debugging.
+- Historical execution consistency.
 
 ---
 
 ## 4. Draft and Published Workflows
-
-### Future Improvement
 
 Add workflow lifecycle states:
 
@@ -147,9 +190,21 @@ published
 archived
 ```
 
-Only published workflows would be executable.
+Only published workflows should be executable in production.
 
-This would separate workflow editing from production execution.
+This separates:
+
+```text
+Workflow Editing
+      ↓
+Validation
+      ↓
+Publishing
+      ↓
+Execution
+```
+
+Owners could control publication while Editors continue to work on drafts according to their permissions.
 
 ---
 
@@ -157,106 +212,112 @@ This would separate workflow editing from production execution.
 
 ### Current State
 
-The webhook implementation supports a configured webhook secret.
+FlowForge supports configured webhook secrets and validates webhook requests.
 
 ### Future Improvement
+
+Move from shared secrets toward signed requests.
 
 Add:
 
 - HMAC signatures.
 - Timestamp validation.
 - Replay protection.
-- Secret rotation.
 - Per-workflow credentials.
+- Secret rotation.
 - Webhook request rate limits.
+- Signature versioning.
 
 Example:
 
 ```text
-Request
-  ↓
-Signature validation
-  ↓
-Timestamp validation
-  ↓
-Replay check
-  ↓
-Workflow execution
+Incoming Request
+       ↓
+Signature Validation
+       ↓
+Timestamp Validation
+       ↓
+Replay Check
+       ↓
+Trigger Validation
+       ↓
+Workflow Execution
 ```
 
 ---
 
-## 6. Scheduled Triggers
+## 6. Advanced Scheduling
 
 ### Current State
 
-The database supports:
-
-```text
-scheduled
-```
-
-as a trigger type, but the current assessment implementation demonstrates manual and webhook triggers.
+The project supports scheduled workflow triggers and contains a backend scheduler.
 
 ### Future Improvement
 
-Implement a scheduler service.
-
-Example:
-
-```text
-Every day at 09:00
-        ↓
-Scheduler
-        ↓
-Workflow Run
-```
-
-Possible features:
+Expand scheduling capabilities with:
 
 - Cron expressions.
 - Time zones.
+- Calendar-aware schedules.
 - Pause/resume schedules.
 - Next-run preview.
 - Missed-run handling.
-
----
-
-## 7. Database Event Triggers
-
-### Current State
-
-The schema supports:
-
-```text
-database_event
-```
-
-as a workflow trigger type.
-
-### Future Improvement
-
-Allow workflows to start automatically when a database event occurs.
+- Schedule history.
+- Per-organization scheduling limits.
+- Schedule concurrency policies.
 
 Example:
 
 ```text
-PostgreSQL INSERT
+Every weekday at 09:00
+          ↓
+       Scheduler
+          ↓
+     Workflow Run
+```
+
+---
+
+## 7. Advanced Database Event Triggers
+
+### Current State
+
+The project supports `database_event` triggers and a Hasura event integration path.
+
+### Future Improvement
+
+Expand event matching with:
+
+- Multiple tables.
+- Insert/update/delete filters.
+- Row-level conditions.
+- Payload mapping.
+- Event batching.
+- Event deduplication.
+- Event replay.
+- Event failure handling.
+
+Example:
+
+```text
+Database Change
       ↓
 Hasura Event Trigger
       ↓
-FlowForge
+Event Matching
+      ↓
+Workflow Input Mapping
       ↓
 Workflow Run
 ```
 
 ---
 
-## 8. Better Retry Policies
+## 8. Configurable Retry Policies
 
 ### Current State
 
-LLM and HTTP steps have retry support.
+LLM and HTTP execution paths have retry support.
 
 ### Future Improvement
 
@@ -269,97 +330,109 @@ Maximum attempts: 5
 Initial delay: 1 second
 Backoff: exponential
 Maximum delay: 30 seconds
+
 Retry on:
   - timeout
   - 429
   - 5xx
 ```
 
-A future retry configuration could be stored in each step's JSONB configuration.
+The retry policy could be stored in the step's JSONB configuration.
 
 ---
 
 ## 9. Dead-Letter Handling
 
-### Future Improvement
-
-Add a dead-letter queue for workflows and steps that repeatedly fail.
-
-Example:
+Introduce dead-letter handling for workflows or steps that repeatedly fail.
 
 ```text
-Workflow failure
-      ↓
-Retry exhausted
-      ↓
-Dead-letter record
-      ↓
-Manual investigation
+Step Failure
+    ↓
+Retry
+    ↓
+Retry Exhausted
+    ↓
+Dead-Letter Record
+    ↓
+Manual Investigation
 ```
 
 The dashboard could provide:
 
 - Failed execution list.
-- Retry button.
-- Error details.
+- Failure reason.
+- Retry count.
+- Retry action.
 - Failure history.
+- Recovery status.
 
 ---
 
-## 10. Better Observability
+## 10. Production Observability
 
 ### Current State
 
-Workflow and step errors are persisted.
+Workflow and step errors are persisted and execution state is visible in the dashboard.
 
 ### Future Improvement
 
-Add structured logging and tracing.
+Add structured logging and distributed tracing.
 
-Track:
+Useful correlation fields:
 
 ```text
 workflow_run_id
 step_run_id
 organization_id
 user_id
+trigger_type
 duration
 attempt
 provider
 error_code
 ```
 
-This would make production debugging easier.
+A request should be traceable from:
+
+```text
+Trigger
+  ↓
+Action
+  ↓
+Workflow Run
+  ↓
+Step Run
+  ↓
+External Provider
+```
 
 ---
 
 ## 11. Execution Metrics
 
-### Future Improvement
-
-Add metrics such as:
+Add operational metrics such as:
 
 ```text
 Workflow success rate
+Workflow failure rate
 Average execution time
 Step latency
 LLM latency
 HTTP latency
 Retry rate
 Approval wait time
-Failure rate
 Quota usage
+Webhook volume
+Scheduled execution volume
 ```
 
-The dashboard could display these as charts.
+The dashboard could provide organization-level charts and execution summaries.
 
 ---
 
 ## 12. Audit Logs
 
-### Future Improvement
-
-Add a dedicated audit log.
+Introduce a dedicated audit-log table.
 
 Record actions such as:
 
@@ -374,6 +447,9 @@ workflow.failed
 member.added
 member.removed
 role.changed
+trigger.created
+trigger.updated
+trigger.deleted
 ```
 
 Each record could contain:
@@ -388,15 +464,15 @@ resource_id
 metadata
 ```
 
-This would improve enterprise security and traceability.
+This would improve enterprise traceability and security investigations.
 
 ---
 
-## 13. Better Approval Management
+## 13. Advanced Approval Management
 
 ### Current State
 
-The application supports a single approval gate.
+The project supports a durable approval gate and approval/resume flow.
 
 ### Future Improvement
 
@@ -404,22 +480,24 @@ Support:
 
 - Multiple approvers.
 - Approval groups.
+- Sequential approvals.
+- Parallel approvals.
 - Approval deadlines.
 - Escalation.
-- Reject action.
+- Delegation.
 - Approval comments.
 - Approval history.
-- Delegation.
+- Approval policies.
 
 Example:
 
 ```text
 Approval Gate
-     ↓
-Owner approval
-     ↓
-Finance approval
-     ↓
+      ↓
+Manager Approval
+      ↓
+Finance Approval
+      ↓
 Continue
 ```
 
@@ -427,30 +505,31 @@ Continue
 
 ## 14. Approval Rejection
 
-### Future Improvement
-
-Add:
+Add explicit rejection support.
 
 ```text
-Approve
-Reject
+Approval Gate
+     ↓
+ ┌───┴────┐
+Approve  Reject
+   ↓        ↓
+Continue  Rejected
 ```
 
-A rejection could transition the workflow to:
+A rejection should store:
 
 ```text
-cancelled
+rejected_by
+rejected_at
+rejection_reason
 ```
 
-or a dedicated:
+Possible terminal states:
 
 ```text
 rejected
+cancelled
 ```
-
-state.
-
-The rejection reason should be stored with the step run.
 
 ---
 
@@ -458,11 +537,11 @@ The rejection reason should be stored with the step run.
 
 ### Current State
 
-The assessment implementation demonstrates a simple `contains` condition based on previous step output.
+The assessment workflow demonstrates conditional branching based on workflow execution context.
 
 ### Future Improvement
 
-Support:
+Support operators such as:
 
 ```text
 equals
@@ -471,11 +550,13 @@ contains
 not_contains
 greater_than
 less_than
+greater_than_or_equal
+less_than_or_equal
 exists
 regex
 ```
 
-and allow nested expressions:
+Support nested expressions:
 
 ```text
 AND
@@ -497,13 +578,11 @@ customer_risk == "low"
 
 ### Current State
 
-The workflow engine passes execution context between steps.
+The execution context carries outputs between workflow steps.
 
 ### Future Improvement
 
-Introduce explicit expression syntax.
-
-Example:
+Introduce explicit expression syntax:
 
 ```text
 {{steps.analyze_request.output}}
@@ -511,13 +590,11 @@ Example:
 {{workflow.input.customer.email}}
 ```
 
-This would make workflows easier to configure and understand.
+Add validation so references to missing steps or fields are detected before execution.
 
 ---
 
-## 17. Workflow Input Schema
-
-### Future Improvement
+## 17. Workflow Input Schemas
 
 Allow each workflow to define an input schema.
 
@@ -531,41 +608,53 @@ Example:
 }
 ```
 
-The system could validate manual and webhook inputs before execution.
+The system could validate inputs from:
+
+- Manual execution.
+- Webhooks.
+- Scheduled triggers.
+- Database events.
+
+Invalid input should fail before consuming workflow execution resources.
 
 ---
 
-## 18. API Credentials Management
+## 18. Secure Credentials Management
 
 ### Current State
 
-External integrations are represented by step configuration.
+External integration configuration can be represented in step configuration.
 
 ### Future Improvement
 
-Introduce a secure credentials system.
+Do not store sensitive credentials directly in workflow configuration.
 
-Instead of storing credentials inside workflow configuration:
+Instead:
 
 ```text
 workflow_steps.config
-```
-
-store references:
-
-```text
+        ↓
 credential_id
+        ↓
+Encrypted Credential Store
 ```
 
-Secrets would be encrypted and never exposed to the frontend.
+Credentials should:
+
+- Be encrypted at rest.
+- Never be returned to the frontend.
+- Be scoped to an organization.
+- Support rotation.
+- Support revocation.
+- Have audit history.
 
 ---
 
 ## 19. Integration Marketplace
 
-### Future Improvement
+Provide reusable integrations.
 
-Provide reusable integrations:
+Potential integrations include:
 
 ```text
 Slack
@@ -580,19 +669,19 @@ PostgreSQL
 REST APIs
 ```
 
-Each integration could expose one or more workflow steps.
+Each integration could expose one or more workflow steps and use the secure credentials system.
 
 ---
 
-## 20. Better Notification System
+## 20. Full Notification Providers
 
 ### Current State
 
-The project creates notification events and provides a Hasura Event Trigger integration point.
+The `notify` step creates notification events and the project has a Hasura Event Trigger integration point.
 
 ### Future Improvement
 
-Implement actual providers:
+Add actual delivery providers:
 
 ```text
 Email
@@ -602,7 +691,7 @@ Discord
 SMS
 ```
 
-Add delivery state:
+Track delivery state:
 
 ```text
 pending
@@ -611,17 +700,15 @@ delivered
 failed
 ```
 
-and provider response tracking.
+Store provider response information and retry failed notifications.
 
 ---
 
-## 21. Workflow Run History
+## 21. Dedicated Workflow Run History
 
-### Future Improvement
+Create a dedicated execution-history page.
 
-Create a dedicated execution history page.
-
-Users could search:
+Allow filtering by:
 
 ```text
 Workflow
@@ -631,27 +718,26 @@ Trigger
 Date
 ```
 
-and inspect:
+A run detail page could show:
 
 ```text
 Workflow Run
-   ↓
+    ↓
 Step Runs
-   ↓
+    ↓
 Inputs
 Outputs
 Errors
 Attempts
 Approvals
+Timing
 ```
 
 ---
 
 ## 22. Workflow Replay
 
-### Future Improvement
-
-Allow users to replay a failed or completed run.
+Allow users to replay a failed or completed workflow.
 
 Possible options:
 
@@ -661,17 +747,15 @@ Replay from failed step
 Replay from selected step
 ```
 
-The replay should always create a new workflow run rather than mutating historical execution data.
+Replay must create a **new workflow run** rather than mutating historical execution data.
 
 ---
 
 ## 23. Concurrency Controls
 
-### Future Improvement
+Prevent unwanted duplicate or excessive executions.
 
-Prevent unwanted duplicate executions.
-
-Possible controls:
+Possible policies:
 
 ```text
 Allow concurrent runs
@@ -680,31 +764,39 @@ Maximum concurrent runs = N
 Queue additional runs
 ```
 
-This becomes especially useful for webhook-triggered workflows.
+This is particularly useful for webhook-triggered workflows and scheduled workflows.
 
 ---
 
 ## 24. Rate Limiting
 
-### Future Improvement
-
 Add rate limiting to:
 
-- Login attempts.
 - Workflow triggers.
 - Webhooks.
 - Approval requests.
 - Public API endpoints.
+- Database-event endpoints.
+- Notification-event endpoints.
 
-This would protect the backend from accidental or malicious high-frequency requests.
+Possible policies:
+
+```text
+Per user
+Per organization
+Per workflow
+Per IP
+```
+
+Rate limits should return clear errors and avoid consuming workflow quota when a request is rejected before execution.
 
 ---
 
-## 25. Background Job Queue
+## 25. Durable Background Job Queue
 
 ### Current State
 
-The assessment implementation executes workflow steps through the Node.js workflow engine.
+The workflow engine executes steps in the Node.js backend.
 
 ### Future Improvement
 
@@ -728,56 +820,56 @@ Worker
    ↓
 Execute step
    ↓
+Persist step_run
+   ↓
 Queue next step
 ```
 
-This would improve scalability for long-running workflows.
+This would improve resilience for long-running and high-volume workflows.
 
 ---
 
 ## 26. Horizontal Worker Scaling
 
-### Future Improvement
-
 Run multiple workflow workers:
 
 ```text
-              Queue
-             /  |  \
-            /   |   \
-       Worker1 Worker2 Worker3
+                 Queue
+              /    |    \
+             /     |     \
+        Worker 1 Worker 2 Worker 3
 ```
 
-A distributed worker architecture would allow the platform to process more workflow runs concurrently.
+Workers should safely claim jobs and persist execution state.
+
+This would allow workflow execution capacity to scale independently from the API server.
 
 ---
 
 ## 27. Distributed Locking
 
-### Future Improvement
+Add locking around workflow execution and approval resumes.
 
-Add locking around workflow runs and approval resumes.
-
-This would prevent:
+The goal is to prevent:
 
 ```text
-Approve request A
-Approve request B
+Approve Request A
+       +
+Approve Request B
+       ↓
+Two concurrent resumes
 ```
 
-from simultaneously resuming the same paused workflow.
-
-Possible implementation:
+Possible mechanisms:
 
 - PostgreSQL row locks.
 - Redis locks.
+- Optimistic concurrency checks.
 - Idempotency keys.
 
 ---
 
 ## 28. Idempotency
-
-### Future Improvement
 
 Add idempotency keys to workflow triggers and webhooks.
 
@@ -787,51 +879,70 @@ Example:
 Idempotency-Key: abc123
 ```
 
-If the same request is received twice:
+Behavior:
 
 ```text
 Request 1 → workflow run created
 Request 2 → existing run returned
 ```
 
-This is especially important for webhook integrations.
+This is especially important for external systems that retry webhook requests.
 
 ---
 
-## 29. Better Tenant Administration
+## 29. Better Organization Administration
 
-### Future Improvement
+Create an organization administration area for Owners.
 
-Create organization administration screens for Owners.
-
-Features:
+Potential features:
 
 - Invite member.
 - Remove member.
 - Change role.
-- View organization usage.
+- View organization members.
+- View usage.
 - Manage quota.
 - View audit logs.
+- View active workflows.
+- Review execution history.
+
+The existing Owner/Editor/Viewer authorization model should remain the enforcement boundary.
 
 ---
 
-## 30. Better Quota Management
+## 30. Advanced Quota Management
 
 ### Current State
 
-Quota is checked before new execution and usage is incremented after successful completion.
+The project has organization-level execution quota tracking.
 
 ### Future Improvement
 
 Support:
 
 - Different quotas per plan.
-- Monthly reset automation.
+- Automated monthly resets.
 - Usage alerts.
 - Soft limits.
 - Hard limits.
 - Per-step usage accounting.
-- LLM token-based billing.
+- AI token usage.
+- Provider-specific cost accounting.
+- Organization usage dashboards.
+
+Example:
+
+```text
+Organization
+     ↓
+Plan
+     ↓
+Execution Quota
+     ↓
+AI Usage
+     ↓
+Usage Alerts
+```
 
 ---
 
@@ -839,11 +950,11 @@ Support:
 
 ### Current State
 
-The project uses Google Gemini for the LLM step.
+The LLM step uses Google Gemini.
 
 ### Future Improvement
 
-Introduce a provider abstraction:
+Introduce an abstraction layer:
 
 ```text
 LLM Provider
@@ -853,15 +964,13 @@ LLM Provider
     └── Groq
 ```
 
-Workflow configuration could choose the provider without changing the execution engine.
+Workflow configuration could choose the provider without changing the workflow engine.
 
 ---
 
 ## 32. AI Cost Tracking
 
-### Future Improvement
-
-Record:
+Record LLM usage for every LLM step run:
 
 ```text
 model
@@ -872,15 +981,11 @@ estimated_cost
 latency
 ```
 
-per LLM step run.
-
-This would allow organization-level AI usage reporting.
+This could support organization-level AI usage reporting and future billing.
 
 ---
 
 ## 33. Better LLM Reliability
-
-### Future Improvement
 
 Add:
 
@@ -891,23 +996,24 @@ Add:
 - Provider fallback.
 - Timeout handling.
 - Token limits.
-- Content validation.
+- Output validation.
+- Provider-specific retry policies.
 
 Example:
 
 ```text
-Gemini failure
+Gemini Failure
       ↓
-Fallback provider
+Fallback Provider
       ↓
 Retry
       ↓
-Failure
+Success / Failure
 ```
 
 ---
 
-## 34. Testing
+## 34. Automated Testing
 
 ### Current State
 
@@ -915,7 +1021,7 @@ The project has the core implementation and manual integration flow.
 
 ### Future Improvement
 
-Add automated tests.
+Add automated tests at three levels.
 
 ### Unit Tests
 
@@ -924,9 +1030,11 @@ Test:
 - Authorization.
 - Quota.
 - Retry.
-- Conditional branch.
+- Conditional branching.
 - Step dispatch.
 - Approval validation.
+- Input validation.
+- Webhook validation.
 
 ### Integration Tests
 
@@ -934,15 +1042,15 @@ Test:
 
 ```text
 Trigger
- ↓
+  ↓
 Workflow
- ↓
+  ↓
 Pause
- ↓
+  ↓
 Approve
- ↓
+  ↓
 Resume
- ↓
+  ↓
 Complete
 ```
 
@@ -952,15 +1060,17 @@ Test:
 
 ```text
 Login
- ↓
+  ↓
 Dashboard
- ↓
-Create workflow
- ↓
+  ↓
+Create Workflow
+  ↓
 Run
- ↓
+  ↓
+Pause
+  ↓
 Approve
- ↓
+  ↓
 Completed
 ```
 
@@ -970,13 +1080,13 @@ Completed
 
 ### Current State
 
-The project is implemented in JavaScript/JSX.
+The project is implemented using JavaScript and JSX.
 
 ### Future Improvement
 
-Migrate to TypeScript.
+Migrate the client and server to TypeScript.
 
-Useful types would include:
+Useful types include:
 
 ```text
 Workflow
@@ -988,50 +1098,52 @@ Organization
 OrganizationMember
 StepConfig
 ExecutionContext
+ActionPayload
 ```
 
-This would reduce runtime configuration errors and improve IDE support.
+This would improve:
+
+- IDE support.
+- Refactoring safety.
+- API contracts.
+- Configuration validation.
+- Developer experience.
 
 ---
 
 ## 36. API Documentation
 
-### Future Improvement
-
-Document backend endpoints and Actions with OpenAPI or equivalent documentation.
+Document backend endpoints and Hasura Actions with OpenAPI or equivalent documentation.
 
 Document:
 
 ```text
+POST /actions/trigger-workflow-run
+POST /actions/approve-step
+POST /actions/trigger-workflow-webhook
 POST /webhooks/workflow/:workflowId
 POST /events/notification
-triggerWorkflowRun
-approveStep
+POST /events/database
 ```
 
-Include:
+Each endpoint should document:
 
-- Request schemas.
-- Response schemas.
+- Request schema.
+- Response schema.
 - Authentication.
+- Authorization.
+- Required headers.
 - Error codes.
 - Examples.
+- Rate limits.
 
 ---
 
-## 37. Better Error Codes
+## 37. Centralized Error Catalog
 
 ### Current State
 
-The backend already uses explicit error codes in several important paths, including:
-
-```text
-QUOTA_EXCEEDED
-APPROVAL_FORBIDDEN
-INVALID_APPROVAL_STATE
-WEBHOOK_NOT_ENABLED
-INVALID_WEBHOOK_SECRET
-```
+The backend already uses explicit error codes in important paths.
 
 ### Future Improvement
 
@@ -1042,6 +1154,7 @@ Example:
 ```text
 AUTH_REQUIRED
 FORBIDDEN
+ORGANIZATION_NOT_FOUND
 WORKFLOW_NOT_FOUND
 STEP_NOT_FOUND
 QUOTA_EXCEEDED
@@ -1049,8 +1162,21 @@ INVALID_STEP_CONFIG
 STEP_EXECUTION_FAILED
 APPROVAL_REQUIRED
 INVALID_APPROVAL_STATE
+APPROVAL_FORBIDDEN
 WEBHOOK_NOT_ENABLED
 INVALID_WEBHOOK_SECRET
+INVALID_EVENT_SECRET
+RATE_LIMITED
+```
+
+The same catalog should be used by:
+
+```text
+Backend
+Hasura Actions
+Frontend
+Logs
+API Documentation
 ```
 
 This would make frontend error handling more predictable.
@@ -1059,11 +1185,9 @@ This would make frontend error handling more predictable.
 
 ## 38. Better Frontend State Management
 
-### Future Improvement
+As the product grows, centralize data fetching and UI state.
 
-For a larger product, introduce a dedicated data-fetching/state layer.
-
-Possible options:
+Possible approaches include:
 
 ```text
 TanStack Query
@@ -1071,7 +1195,7 @@ Apollo Client
 Zustand
 ```
 
-This could centralize:
+Potential responsibilities:
 
 - Workflow queries.
 - Run queries.
@@ -1079,12 +1203,11 @@ This could centralize:
 - Loading states.
 - Error states.
 - Optimistic updates.
+- Subscription synchronization.
 
 ---
 
 ## 39. Accessibility Improvements
-
-### Future Improvement
 
 Improve:
 
@@ -1093,55 +1216,58 @@ Improve:
 - Screen-reader labels.
 - Color-independent status indicators.
 - Modal accessibility.
+- Form validation messages.
 - Accessible error messages.
+- Reduced-motion support.
+
+All workflow states should remain understandable without relying only on color.
 
 ---
 
 ## 40. UI/UX Improvements
 
-### Future Improvement
-
-Add:
+Potential dashboard improvements:
 
 - Workflow search.
 - Workflow filtering.
-- Better run timeline.
+- Better execution timeline.
 - Step execution duration.
 - Expandable step input/output.
-- Error details.
+- Detailed errors.
 - Approval comments.
 - Empty states.
 - Loading skeletons.
 - Toast notifications.
+- Better mobile responsiveness.
+- Execution status filters.
+- Faster navigation between workflow runs.
 
 ---
 
 ## 41. Security Hardening
 
-### Future Improvement
-
-Further harden production deployment with:
+Further production hardening should include:
 
 - Secret rotation.
-- Strong webhook signatures.
+- HMAC webhook signatures.
 - Rate limiting.
-- CSP headers.
+- Content Security Policy.
 - Secure HTTP headers.
-- CORS allowlists.
+- Strict CORS allowlists.
 - Input validation.
-- Request size limits.
+- Request-size limits.
 - Dependency auditing.
 - Security logging.
+- Secret scanning in CI.
+- Security-focused integration tests.
+
+The frontend should never become the authorization boundary; sensitive authorization must remain enforced by Hasura and the backend.
 
 ---
 
 ## 42. Deployment and Operations
 
-### Future Improvement
-
-Add CI/CD.
-
-Example:
+Introduce a complete CI/CD pipeline:
 
 ```text
 GitHub
@@ -1150,41 +1276,50 @@ Pull Request
    ↓
 Lint
    ↓
-Tests
+Unit Tests
+   ↓
+Integration Tests
    ↓
 Build
    ↓
 Deploy
+   ↓
+Health Check
 ```
 
-Also add:
+Additional improvements:
 
 - Preview environments.
 - Production environment protection.
 - Environment-specific secrets.
 - Deployment health checks.
 - Rollback strategy.
+- Migration verification.
+- Smoke tests after deployment.
+- Deployment notifications.
 
 ---
 
 ## 43. Database Improvements
 
-### Future Improvement
-
-Add:
+Potential database improvements include:
 
 - More explicit foreign keys to Nhost users where appropriate.
 - Additional indexes based on production query patterns.
-- Retention policies for old step runs.
-- Partitioning for large execution-history tables.
-- Database migrations for every schema change.
-- Automated backups and restore testing.
+- Retention policies for old `step_runs`.
+- Retention policies for workflow history.
+- Partitioning large execution-history tables.
+- A migration for every schema change.
+- Automated backups.
+- Restore testing.
+- Query-performance monitoring.
+- Data archival.
+
+The database schema should remain backward-compatible with workflow execution and historical run inspection.
 
 ---
 
 ## 44. Workflow Cancellation
-
-### Future Improvement
 
 Implement a real cancellation operation:
 
@@ -1194,35 +1329,46 @@ running
 cancelled
 ```
 
-The engine should stop future steps and persist the cancellation reason.
+Cancellation should:
+
+1. Verify authorization.
+2. Verify the workflow run can be cancelled.
+3. Prevent future steps from executing.
+4. Persist cancellation state.
+5. Store the cancellation reason.
+6. Update active step state if necessary.
 
 ---
 
-## 45. Workflow Timeout
+## 45. Workflow and Step Timeouts
 
-### Future Improvement
-
-Allow a workflow or step to define a timeout.
+Allow workflows and individual steps to define timeouts.
 
 Example:
 
 ```text
-HTTP timeout = 30 seconds
+HTTP timeout     = 30 seconds
 Workflow timeout = 10 minutes
 Approval timeout = 24 hours
 ```
 
-Timeouts should transition execution to an explicit failed or cancelled state.
+Timeouts should produce explicit states:
+
+```text
+failed
+cancelled
+expired
+```
+
+rather than leaving a workflow permanently active.
 
 ---
 
 ## 46. Long-Running Approval Handling
 
-### Future Improvement
+Support approval gates that remain paused for days or weeks.
 
-Support approvals that remain paused for days or weeks.
-
-Add:
+Potential capabilities:
 
 - Approval expiry.
 - Reminders.
@@ -1230,14 +1376,26 @@ Add:
 - Delegation.
 - Notification delivery.
 - Approval SLA metrics.
+- Approval reassignment.
+- Approval history.
+
+Example:
+
+```text
+Paused
+  ↓
+Reminder
+  ↓
+Escalation
+  ↓
+Approval / Rejection / Expiry
+```
 
 ---
 
 ## 47. Workflow Templates
 
-### Future Improvement
-
-Create reusable templates such as:
+Create reusable workflow templates such as:
 
 ```text
 Customer Approval
@@ -1247,15 +1405,23 @@ Support Ticket Routing
 Content Review
 ```
 
-Owners could instantiate a template instead of building a workflow from scratch.
+Owners could instantiate templates instead of creating every workflow from scratch.
+
+Templates could define:
+
+```text
+Steps
+Triggers
+Default configuration
+Required credentials
+Required permissions
+```
 
 ---
 
 ## 48. Product-Level Billing
 
-### Future Improvement
-
-If FlowForge becomes a real SaaS product, add:
+If FlowForge evolves into a SaaS product, add plans such as:
 
 ```text
 Free
@@ -1264,20 +1430,22 @@ Team
 Enterprise
 ```
 
-with plan-specific:
+Plan-specific limits could include:
 
-- Workflow limits.
-- Execution quotas.
+- Workflow count.
+- Execution quota.
 - AI usage.
-- Members.
-- Retention.
+- Organization members.
+- Execution retention.
 - Integrations.
+- Scheduling limits.
+- Webhook volume.
+
+Billing should remain separate from the core workflow execution engine.
 
 ---
 
 ## 49. Internationalization
-
-### Future Improvement
 
 Support multiple languages for:
 
@@ -1286,12 +1454,15 @@ Support multiple languages for:
 - Workflow messages.
 - Error messages.
 - Notifications.
+- Organization administration.
+
+The backend error catalog should use stable error codes so localized frontend messages can be provided without changing backend behavior.
 
 ---
 
-## 50. Final Future Direction
+## 50. Final Product Direction
 
-The assessment version establishes the foundation:
+The current assessment implementation establishes the foundation:
 
 ```text
 Authentication
@@ -1311,18 +1482,22 @@ Persistent Results
 Live Monitoring
 ```
 
-A future production version could evolve this into:
+A future production-oriented FlowForge could evolve toward:
 
 ```text
 Visual Builder
       ↓
 Versioned Workflows
       ↓
+Draft / Publish Lifecycle
+      ↓
 Durable Job Queue
       ↓
 Distributed Workers
       ↓
 Multiple AI Providers
+      ↓
+Secure Credentials
       ↓
 Enterprise Integrations
       ↓
@@ -1331,4 +1506,88 @@ Audit + Observability
 Billing + Organizations
 ```
 
-The current assessment implementation should remain focused and stable while these improvements are considered as separate product iterations.
+The current assessment implementation should remain focused and stable while these improvements are developed as separate product iterations.
+
+---
+
+## Suggested Development Priority
+
+If these improvements are implemented incrementally, a practical order would be:
+
+### Phase 1 — Reliability
+
+```text
+Automated Tests
+      ↓
+Idempotency
+      ↓
+Concurrency Controls
+      ↓
+Timeouts
+      ↓
+Cancellation
+      ↓
+Centralized Errors
+```
+
+### Phase 2 — Security
+
+```text
+Credential Management
+      ↓
+HMAC Webhooks
+      ↓
+Rate Limiting
+      ↓
+Secret Rotation
+      ↓
+Security Logging
+```
+
+### Phase 3 — Workflow Product Experience
+
+```text
+Visual Builder
+      ↓
+Step Configuration UI
+      ↓
+Input Schemas
+      ↓
+Data Mapping
+      ↓
+Workflow Versioning
+      ↓
+Draft / Publish
+```
+
+### Phase 4 — Scale
+
+```text
+Durable Job Queue
+      ↓
+Distributed Workers
+      ↓
+Distributed Locks
+      ↓
+Execution Metrics
+      ↓
+Production Observability
+```
+
+### Phase 5 — SaaS Expansion
+
+```text
+Integrations
+      ↓
+Templates
+      ↓
+Organization Administration
+      ↓
+AI Cost Tracking
+      ↓
+Billing
+      ↓
+Enterprise Features
+```
+
+
